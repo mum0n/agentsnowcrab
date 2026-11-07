@@ -1,0 +1,26 @@
+import React from 'react';
+import { useStore } from '../store/simulationStore.js';
+
+export default function Dashboard() {
+  const { total, males, females, legal, catchTotal, catchLegal, meanCw, day, status, history } = useStore();
+  return (
+    <div className="card">
+      <h2>Population Summary</h2>
+      <div className="grid">
+        <div><strong>Total abundance</strong><div>{total}</div></div>
+        <div><strong>Males</strong><div>{males}</div></div>
+        <div><strong>Females</strong><div>{females}</div></div>
+        <div><strong>Legal males (CW ≥ 95 mm)</strong><div>{legal}</div></div>
+        <div><strong>Catch total</strong><div>{catchTotal}</div></div>
+        <div><strong>Catch legal</strong><div>{catchLegal}</div></div>
+        <div><strong>Mean CW (mm)</strong><div>{meanCw.toFixed(1)}</div></div>
+        <div><strong>Day</strong><div>{day}</div></div>
+      </div>
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3>Reporting invariants</h3>
+        <p>catch_total and catch_legal are recorded as distinct telemetry columns. Harvest gate restricts removals to morphometrically mature males ≥ legal size (CW ≥ 95 mm) governed by fishery.fishing_probability_daily.</p>
+        <p>Status: <strong>{status}</strong> | History points: {history.length}</p>
+      </div>
+    </div>
+  );
+}

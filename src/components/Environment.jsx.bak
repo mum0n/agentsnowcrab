@@ -1,0 +1,13 @@
+import React from 'react';
+export default function Environment() {
+  return (
+    <div className="card">
+      <h2>Environmental Data Assimilation</h2>
+      <p>Bathymetry (ETOPO 2022) and hydrography (WOA2023/GLORYS12V1). Inspect input availability, assimilate missing products, retrieve spatial arrays.</p>
+      <table><thead><tr><th>Input</th><th>Status</th></tr></thead><tbody>
+        <tr><td>Bathymetry</td><td>Not loaded</td></tr>
+        <tr><td>Temperature</td><td>Not loaded</td></tr>
+      </tbody></table>
+    </div>
+  );
+}
