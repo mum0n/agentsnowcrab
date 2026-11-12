@@ -1,15 +1,323 @@
-:root { --bg:#0f172a; --fg:#e2e8f0; --accent:#38bdf8; --card:#1e293b; }
-* { box-sizing:border-box; }
-body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); }
-.app-header { display:flex; align-items:center; justify-content:space-between; padding:12px 20px; background:var(--card); }
-.app-header h1 { margin:0; font-size:1.4rem; color:var(--accent); }
-nav button { background:transparent; color:var(--fg); border:1px solid #334155; margin-left:8px; padding:6px 14px; border-radius:6px; cursor:pointer; }
-nav button.active { background:var(--accent); color:#0f172a; border-color:var(--accent); }
-main { padding:20px; }
-.card { background:var(--card); border-radius:10px; padding:16px; margin-bottom:16px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
-label { display:block; margin:8px 0; }
-input,select { width:100%; padding:6px; border-radius:6px; border:1px solid #334155; background:#0f172a; color:var(--fg); }
-button.run { background:var(--accent); color:#0f172a; border:none; padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:600; }
-table { width:100%; border-collapse:collapse; }
-td,th { padding:6px 8px; border-bottom:1px solid #334155; text-align:left; }
+:root {
+  --bg: #f1f5f9;
+  --fg: #0f172a;
+  --card: #ffffff;
+  --border: #cbd5e1;
+  --muted: #475569;
+  --accent: #1e3a8a;
+  --green: #16a34a;
+  --blue: #0284c7;
+  --amber: #d97706;
+  --red: #dc2626;
+  --slate: #64748b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tethysbio-header {
+  padding: 14px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+}
+
+.tethysbio-header h1 {
+  font-size: 22px;
+  margin: 0;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.tethysbio-header .status {
+  color: #475569;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.tethysbio-toolbar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tethysbio-tab-bar {
+  display: flex;
+  gap: 8px;
+  background: #e2e8f0;
+  padding: 4px;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.tethysbio-tab-btn {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tethysbio-tab-btn:hover {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+.tethysbio-tab-btn.active {
+  background: #1e3a8a;
+  color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.transport-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.transport-btn-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.btn-start {
+  background: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-step {
+  background: #0284c7;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-pause {
+  background: #d97706;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-stop {
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-rewind {
+  background: #64748b;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.transport-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.transport-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.transport-input {
+  width: 52px;
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-family: monospace;
+  text-align: right;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.tethysbio-layout {
+  padding: 18px 24px;
+  max-width: 1750px;
+  margin: 0 auto;
+}
+
+.card-panel {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.card-panel h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.tab1-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.tab2-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.38fr) minmax(540px, 0.62fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.tab3-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.tab4-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .tab1-grid,
+  .tab2-grid,
+  .tab3-grid,
+  .tab4-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.preset-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #1e3a8a;
+  transition: all 0.15s;
+}
+
+.preset-btn:hover {
+  background: #e2e8f0;
+}
+
+.controls-col-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.controls-col-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #1e293b;
+  margin-bottom: 10px;
+  border-bottom: 2px solid #cbd5e1;
+  padding-bottom: 4px;
+}
+
+.ctrl-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: #334155;
+}
+
+.ctrl-input {
+  width: 75px;
+  padding: 3px 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  text-align: right;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+.data-table th {
+  background: #f1f5f9;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+  color: #1e293b;
+  text-align: right;
+}
+
+.data-table th:first-child {
+  text-align: center;
+}
+
+.data-table td {
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  font-family: monospace;
+  text-align: right;
+  color: #334155;
+}
+
+.data-table td:first-child {
+  text-align: center;
+}
