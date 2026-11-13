@@ -312,7 +312,7 @@ export function fitSchaefer(time, numbers, catches) {
   const det = s11 * s22 - s12 * s12;
 
   let rInit = 0.35;
-  let kInit = Math.max(...nVals) * 1.5;
+  let kInit = nVals.reduce((a, b) => (a > b ? a : b), -Infinity) * 1.5;
   if (det > 1e-9) {
     const a1 = (s22 * y1 - s12 * y2) / det;
     const a2 = (s11 * y2 - s12 * y1) / det;

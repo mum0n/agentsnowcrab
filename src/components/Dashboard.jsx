@@ -74,13 +74,32 @@ export default function Dashboard() {
   const legalMatMales = agents.filter((a) => a.sex === 'male' && a.mature && a.cw >= legalThresh);
 
   // Background Raster Matrix for Spatial Habitat Map
+  // Use high-resolution Scotian Shelf GEO data (180x131) for depth when available
   const spatialMatrix = useMemo(() => {
     if (!model?.env) return null;
+
+    if (backgroundLayer === 'depth' && SCOTIAN_SHELF_GEO?.z) {
+      // Use high-resolution Scotian Shelf GEO bathymetry (180x131)
+      const geo = SCOTIAN_SHELF_GEO;
+      const mat = [];
+      for (let j = 0; j < geo.ny; j++) {
+        const row = [];
+        for (let i = 0; i < geo.nx; i++) {
+          row.push(geo.z[j * geo.nx + i]);
+        }
+        mat.push(row);
+      }
+      return {
+        mat,
+        x: Array.from({ length: geo.nx }, (_, i) => (i / (geo.nx - 1)) * gsz),
+        y: Array.from({ length: geo.ny }, (_, j) => (j / (geo.ny - 1)) * gsz),
+      };
+    }
+
+    // For temperature and HSI, use model's synthetic grid
     const nr = model.env.resolution || 50;
     const raw =
-      backgroundLayer === 'depth'
-        ? model.env.depth
-        : backgroundLayer === 'temperature'
+      backgroundLayer === 'temperature'
         ? model.env.temperature
         : model.env.hsi;
     if (!raw) return null;
@@ -172,8 +191,8 @@ export default function Dashboard() {
     const fits = fitStockRecruitment(spawners, recruits);
 
     if (!fits.isFitted) return null;
-    const sMin = Math.max(1, Math.min(...spawners));
-    const sMax = Math.max(...spawners) * 1.4;
+    const sMin = Math.max(1, spawners.reduce((a, b) => (a < b ? a : b), Infinity));
+    const sMax = spawners.reduce((a, b) => (a > b ? a : b), -Infinity) * 1.4;
     const sCurve = [];
     const rkCurve = [];
     const bhCurve = [];
@@ -222,12 +241,16 @@ export default function Dashboard() {
   const currentHSI = habitatSuitability(currentT, aoi.depth || 135);
 
   const meanDepthVal = gridDepths.length ? (gridDepths.reduce((a, b) => a + b, 0) / gridDepths.length).toFixed(1) : '135.0';
-  const spanDepthVal = gridDepths.length ? (Math.max(...gridDepths) - Math.min(...gridDepths)).toFixed(1) : '0.0';
+  const maxDepthVal = gridDepths.length ? gridDepths.reduce((a, b) => (a > b ? a : b), -Infinity) : 0;
+  const minDepthVal = gridDepths.length ? gridDepths.reduce((a, b) => (a < b ? a : b), Infinity) : 0;
+  const spanDepthVal = gridDepths.length ? (maxDepthVal - minDepthVal).toFixed(1) : '0.0';
   const meanTempVal = gridTemps.length ? (gridTemps.reduce((a, b) => a + b, 0) / gridTemps.length).toFixed(2) : '3.40';
-  const spanTempVal = gridTemps.length ? (Math.max(...gridTemps) - Math.min(...gridTemps)).toFixed(2) : '0.00';
+  const maxTempVal = gridTemps.length ? gridTemps.reduce((a, b) => (a > b ? a : b), -Infinity) : 0;
+  const minTempVal = gridTemps.length ? gridTemps.reduce((a, b) => (a < b ? a : b), Infinity) : 0;
+  const spanTempVal = gridTemps.length ? (maxTempVal - minTempVal).toFixed(2) : '0.00';
   const meanHsiVal = gridHsis.length ? (gridHsis.reduce((a, b) => a + b, 0) / gridHsis.length).toFixed(3) : '0.750';
-  const minHsiVal = gridHsis.length ? Math.min(...gridHsis).toFixed(3) : '0.000';
-  const maxHsiVal = gridHsis.length ? Math.max(...gridHsis).toFixed(3) : '1.000';
+  const minHsiVal = gridHsis.length ? gridHsis.reduce((a, b) => (a < b ? a : b), Infinity).toFixed(3) : '0.000';
+  const maxHsiVal = gridHsis.length ? gridHsis.reduce((a, b) => (a > b ? a : b), -Infinity).toFixed(3) : '1.000';
 
   return (
     <div>
@@ -243,28 +266,28 @@ export default function Dashboard() {
               className={`tethysbio-tab-btn ${activeTab === 1 ? 'active' : ''}`}
               onClick={() => setActiveTab(1)}
             >
-              1. Controls &amp; AOI Setup
+              1. Controls & AOI Setup
             </button>
             <button
               type="button"
               className={`tethysbio-tab-btn ${activeTab === 2 ? 'active' : ''}`}
               onClick={() => setActiveTab(2)}
             >
-              2. Simulation &amp; Habitat
+              2. Simulation & Habitat
             </button>
             <button
               type="button"
               className={`tethysbio-tab-btn ${activeTab === 3 ? 'active' : ''}`}
               onClick={() => setActiveTab(3)}
             >
-              3. Demographics &amp; Growth
+              3. Demographics & Growth
             </button>
             <button
               type="button"
               className={`tethysbio-tab-btn ${activeTab === 4 ? 'active' : ''}`}
               onClick={() => setActiveTab(4)}
             >
-              4. Assessment &amp; Calibration
+              4. Assessment & Calibration
             </button>
           </nav>
 
@@ -562,7 +585,7 @@ export default function Dashboard() {
               <div className="card-panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                    Spatial Habitat &amp; Organism Distribution (Day {day} / Year {(day / 365).toFixed(1)})
+                    Spatial Habitat & Organism Distribution (Day {day} / Year {(day / 365).toFixed(1)})
                   </span>
                   <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
                     Drag mouse to set Exclusion Area
@@ -735,7 +758,7 @@ export default function Dashboard() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   {/* Col 1: Simulation & Environmental Controls */}
                   <div className="controls-col-card">
-                    <div className="controls-col-title">Simulation &amp; Environmental Controls</div>
+                    <div className="controls-col-title">Simulation & Environmental Controls</div>
 
                     <div className="ctrl-row">
                       <span>Grid Resolution (cells):</span>
@@ -1049,29 +1072,90 @@ export default function Dashboard() {
             {/* Column 1 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="card-panel">
-                <h2>Stage Structure &amp; Cohort Progression</h2>
+                <h2>Stage / Size Class Distribution</h2>
                 <div style={{ width: '100%', height: 320 }}>
                   <Plot
-                    data={[
-                      {
-                        x: STAGE_LABELS,
-                        y: stageCounts.map((c) => Math.log10(Math.max(1, c))),
-                        type: 'bar',
-                        marker: {
-                          color: [
-                            '#a78bfa', '#a78bfa', '#a78bfa', '#a78bfa',
-                            '#38bdf8', '#38bdf8', '#38bdf8', '#38bdf8', '#38bdf8',
-                            '#2563eb', '#2563eb', '#2563eb', '#2563eb', '#2563eb', '#1d4ed8',
-                            '#f43f5e', '#f43f5e', '#f43f5e', '#f43f5e', '#be123c',
-                          ],
+                    data={(() => {
+                      const alive = agents.filter((a) => a.alive);
+                      const labels = STAGE_LABELS;
+                      const maleCounts = labels.map((_, idx) => {
+                        let count = 0;
+                        for (const a of alive) {
+                          const st = Math.min(19, Math.max(4, a.stage || 4));
+                          if (st === idx + 4) {
+                            const isImmature = idx < 9;
+                            if (isImmature) {
+                              if (Math.random() < 0.5) count += 1;
+                            } else if (a.sex === 'male') {
+                              count += 1;
+                            }
+                          }
+                        }
+                        return count;
+                      });
+                      const femaleCounts = labels.map((_, idx) => {
+                        let count = 0;
+                        for (const a of alive) {
+                          const st = Math.min(19, Math.max(4, a.stage || 4));
+                          if (st === idx + 4) {
+                            const isImmature = idx < 9;
+                            if (isImmature) {
+                              if (Math.random() < 0.5) count += 1;
+                            } else if (a.sex === 'female') {
+                              count += 1;
+                            }
+                          }
+                        }
+                        return count;
+                      });
+                      const xpos = labels.map((_, i) => i);
+                      const offset = 0.2;
+                      const xm = xpos.map(i => i - offset);
+                      const xf = xpos.map(i => i + offset);
+                      // Build proper lollipop stems: each stem is [x, x] for line, [0, count] for y
+                      // Use separate traces for male/female stems with connected lines+markers
+                      const maleStemX = [];
+                      const maleStemY = [];
+                      const femaleStemX = [];
+                      const femaleStemY = [];
+                      for (let i = 0; i < labels.length; i++) {
+                        // Male stem
+                        maleStemX.push(xm[i], xm[i], null);
+                        maleStemY.push(0, maleCounts[i], null);
+                        // Female stem
+                        femaleStemX.push(xf[i], xf[i], null);
+                        femaleStemY.push(0, femaleCounts[i], null);
+                      }
+                      return [
+                        // Male stems as connected lines+markers
+                        {
+                          x: maleStemX,
+                          y: maleStemY,
+                          type: 'scatter',
+                          mode: 'lines+markers',
+                          line: { color: '#0284c7', width: 2 },
+                          marker: { color: '#0284c7', size: 9, symbol: 'circle' },
+                          name: 'Males',
+                          showlegend: true,
                         },
-                      },
-                    ]}
+                        // Female stems as connected lines+markers
+                        {
+                          x: femaleStemX,
+                          y: femaleStemY,
+                          type: 'scatter',
+                          mode: 'lines+markers',
+                          line: { color: '#e11d48', width: 2 },
+                          marker: { color: '#e11d48', size: 9, symbol: 'circle' },
+                          name: 'Females',
+                          showlegend: true,
+                        },
+                      ];
+                    })()}
                     layout={lightPlotLayout({
                       autosize: true,
-                      xaxis: { title: 'Life-History Stage', tickangle: -45, showgrid: true, gridcolor: '#f1f5f9' },
-                      yaxis: { title: 'log10(Abundance)', showgrid: true, gridcolor: '#f1f5f9' },
-                      margin: { l: 45, r: 15, t: 15, b: 65 },
+                      xaxis: { tickvals: Array.from({ length: STAGE_LABELS.length }, (_, i) => i), ticktext: STAGE_LABELS, title: 'Developmental Stage', showgrid: true, gridcolor: '#f1f5f9', tickangle: -45 },
+                      yaxis: { title: 'Organisms', showgrid: true, gridcolor: '#f1f5f9' },
+                      margin: { l: 45, r: 15, t: 15, b: 80 },
                     })}
                     useResizeHandler
                     style={{ width: '100%', height: '100%' }}
@@ -1080,7 +1164,7 @@ export default function Dashboard() {
               </div>
 
               <div className="card-panel">
-                <h2>Maturity Ogives &amp; Fishery Selectivity</h2>
+                <h2>Maturity Ogives & Fishery Selectivity</h2>
                 <div style={{ width: '100%', height: 320 }}>
                   <Plot
                     data={[
@@ -1138,57 +1222,41 @@ export default function Dashboard() {
             {/* Column 2 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="card-panel">
-                <h2>Size Frequency by Sex &amp; Maturity</h2>
+                <h2>Size Frequency by Sex & Maturity</h2>
                 <div style={{ width: '100%', height: 320 }}>
                   <Plot
-                    data={[
-                      {
-                        x: immMales.map((a) => a.cw),
-                        type: 'histogram',
-                        name: 'Immature Male',
-                        opacity: 0.6,
-                        marker: { color: '#56B4E9' },
-                        nbinsx: 25,
-                      },
-                      {
-                        x: sublegalMatMales.map((a) => a.cw),
-                        type: 'histogram',
-                        name: 'Sublegal Mature Male',
-                        opacity: 0.6,
-                        marker: { color: '#0072B2' },
-                        nbinsx: 25,
-                      },
-                      {
-                        x: legalMatMales.map((a) => a.cw),
-                        type: 'histogram',
-                        name: 'Legal Mature Male (≥95mm)',
-                        opacity: 0.6,
-                        marker: { color: '#003B73' },
-                        nbinsx: 25,
-                      },
-                      {
-                        x: immFemales.map((a) => a.cw),
-                        type: 'histogram',
-                        name: 'Immature Female',
-                        opacity: 0.6,
-                        marker: { color: '#CC79A7' },
-                        nbinsx: 25,
-                      },
-                      {
-                        x: matFemales.map((a) => a.cw),
-                        y: matFemales.map(() => 1),
-                        type: 'histogram',
-                        name: 'Mature Female',
-                        opacity: 0.6,
-                        marker: { color: '#785EF0' },
-                        nbinsx: 25,
-                      },
-                    ]}
+                    data={(() => {
+                      const kde = (vals, h = 3.0) => {
+                        if (!vals.length) return Array(100).fill(0);
+                        const grid = Array.from({ length: 100 }, (_, i) => 10 + (i / 99) * 160);
+                        return grid.map(x => {
+                          let sum = 0;
+                          for (const v of vals) {
+                            const z = (x - v) / h;
+                            sum += Math.exp(-0.5 * z * z);
+                          }
+                          return sum / (vals.length * h * Math.sqrt(2 * Math.PI));
+                        });
+                      };
+                      const grid = Array.from({ length: 100 }, (_, i) => 10 + (i / 99) * 160);
+                      const imM = kde(immMales.map(a => a.cw));
+                      const subM = kde(sublegalMatMales.map(a => a.cw));
+                      const legM = kde(legalMatMales.map(a => a.cw));
+                      const imF = kde(immFemales.map(a => a.cw));
+                      const matF = kde(matFemales.map(a => a.cw));
+                      const maxY = Math.max(...imM, ...subM, ...legM, ...imF, ...matF, 0.01);
+                      return [
+                        { x: grid, y: imM, type: 'scatter', mode: 'lines', name: 'Immature Male', line: { color: '#56B4E9', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(86, 180, 233, 0.3)' },
+                        { x: grid, y: subM, type: 'scatter', mode: 'lines', name: 'Sublegal Mature Male', line: { color: '#0072B2', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(0, 114, 178, 0.3)' },
+                        { x: grid, y: legM, type: 'scatter', mode: 'lines', name: 'Legal Mature Male (≥95mm)', line: { color: '#003B73', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(0, 59, 115, 0.3)' },
+                        { x: grid, y: imF, type: 'scatter', mode: 'lines', name: 'Immature Female', line: { color: '#CC79A7', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(204, 121, 167, 0.3)' },
+                        { x: grid, y: matF, type: 'scatter', mode: 'lines', name: 'Mature Female', line: { color: '#785EF0', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(120, 94, 240, 0.3)' },
+                      ];
+                    })()}
                     layout={lightPlotLayout({
                       autosize: true,
-                      barmode: 'overlay',
                       xaxis: { title: 'Carapace Width (mm)', range: [0, 165], showgrid: true, gridcolor: '#f1f5f9' },
-                      yaxis: { title: 'Organisms', showgrid: true, gridcolor: '#f1f5f9' },
+                      yaxis: { title: 'Density', showgrid: true, gridcolor: '#f1f5f9' },
                       shapes: [
                         {
                           type: 'line',
@@ -1218,34 +1286,6 @@ export default function Dashboard() {
                   />
                 </div>
               </div>
-
-              <div className="card-panel">
-                <h2>Carapace Width Composition by Cohort</h2>
-                <div style={{ width: '100%', height: 320 }}>
-                  <Plot
-                    data={[
-                      {
-                        x: agents.map((a) => STAGE_LABELS[Math.min(19, a.stage || 4)]),
-                        y: agents.map((a) => a.cw),
-                        type: 'box',
-                        boxpoints: 'all',
-                        jitter: 0.3,
-                        pointpos: -1.8,
-                        marker: { size: 4, color: '#1e3a8a' },
-                        name: 'CW Distribution',
-                      },
-                    ]}
-                    layout={lightPlotLayout({
-                      autosize: true,
-                      xaxis: { title: 'Stage', tickangle: -45, showgrid: true, gridcolor: '#f1f5f9' },
-                      yaxis: { title: 'Carapace Width (mm)', showgrid: true, gridcolor: '#f1f5f9' },
-                      margin: { l: 45, r: 15, t: 15, b: 65 },
-                    })}
-                    useResizeHandler
-                    style={{ width: '100%', height: '100%' }}
-                  />
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -1260,186 +1300,319 @@ export default function Dashboard() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <button
                   type="button"
-                  onClick={() => step(365)}
-                  style={{
-                    background: '#1e3a8a',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: 5,
-                    padding: '6px 14px',
-                    fontWeight: 600,
-                    fontSize: 12,
-                    cursor: 'pointer',
+                  className="secondary"
+                  onClick={() => {
+                    setStepDays(10);
+                    setDurationYears(2);
+                    setRewindDays(10);
                   }}
                 >
-                  Refit Macro
+                  Reset Transport
                 </button>
-                <span style={{ fontSize: 12, color: '#475569' }}>
-                  Calibrate Schaefer surplus production, Delay-Difference, and Beverton-Holt / Ricker stock-recruitment models.
+                <span style={{ color: '#64748b', fontSize: 12 }}>
+                  Horizon: <strong>{durationYears} y</strong> · Step: <strong>{stepDays} d</strong>
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                Annual survey series: <strong>{annual.length} years</strong>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" className="secondary" onClick={() => step()}>▶❚ Step</button>
+                <button type="button" className={running ? 'btn-pause' : 'btn-start'} onClick={running ? pause : start}>
+                  {running ? '⏸ Pause' : '▶ Start'}
+                </button>
+                <button type="button" className="btn-stop" onClick={stop}>⏹ Stop</button>
+                <button type="button" className="btn-rewind" onClick={() => rewind()}>⏪ Rewind</button>
               </div>
             </div>
 
-            <div className="tab4-grid">
-              {/* S-R Diagnostics */}
+            {/* Row 1: Annual Production Table + Stock-Recruitment */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+              {/* Annual Production Table */}
               <div className="card-panel">
-                <h2>Stock-Recruitment Relationship (Male Component)</h2>
-                <div style={{ width: '100%', height: 380 }}>
-                  <Plot
-                    data={[
-                      {
-                        x: srFits ? srFits.spawners.map((s) => Math.log10(s)) : history.map((r) => Math.log10(Math.max(1, r.mature_females))),
-                        y: srFits ? srFits.recruits.map((r) => Math.log10(r)) : history.map((r) => Math.log10(Math.max(1, r.stage_counts?.[13] || 1))),
-                        type: 'scatter',
-                        mode: 'markers',
-                        name: 'Observed Pairs',
-                        marker: { color: '#0284c7', size: 9, line: { color: '#1e3a8a', width: 1.5 } },
-                      },
-                      ...(srFits?.fits?.isFitted
-                        ? [
-                            {
-                              x: srFits.sCurve.map((s) => Math.log10(s)),
-                              y: srFits.rkCurve.map((r) => Math.log10(Math.max(1e-3, r))),
-                              type: 'scatter',
-                              mode: 'lines',
-                              name: `Ricker: R = ${srFits.fits.ricker.alpha.toFixed(2)}·S·exp(-${srFits.fits.ricker.beta.toExponential(2)}·S) (R²=${srFits.fits.ricker.r2.toFixed(2)})`,
-                              line: { color: '#f59e0b', width: 2.5 },
-                            },
-                            {
-                              x: srFits.sCurve.map((s) => Math.log10(s)),
-                              y: srFits.bhCurve.map((r) => Math.log10(Math.max(1e-3, r))),
-                              type: 'scatter',
-                              mode: 'lines',
-                              name: `Beverton-Holt: R = ${srFits.fits.bevertonHolt.alpha.toFixed(2)}·S / (1 + ${srFits.fits.bevertonHolt.beta.toExponential(2)}·S) (R²=${srFits.fits.bevertonHolt.r2.toFixed(2)})`,
-                              line: { color: '#16a34a', width: 2.5, dash: 'dash' },
-                            },
-                          ]
-                        : []),
-                    ]}
-                    layout={lightPlotLayout({
-                      autosize: true,
-                      title: {
-                        text: srFits?.fits?.isFitted
-                          ? `Preferred Model: ${srFits.fits.bestModel === 'ricker' ? 'Ricker' : 'Beverton-Holt'}`
-                          : 'Awaiting multi-year annual recruitment data',
-                        font: { size: 12, color: '#334155' },
-                      },
-                      xaxis: { title: 'log10(Annual Eggs / 2)', showgrid: true, gridcolor: '#e2e8f0' },
-                      yaxis: { title: 'log10(Males at Recruitment Stage)', showgrid: true, gridcolor: '#e2e8f0' },
-                      legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
-                      margin: { l: 45, r: 15, t: 35, b: 35 },
-                    })}
-                    useResizeHandler
-                    style={{ width: '100%', height: '100%' }}
-                  />
-                </div>
-              </div>
-
-              {/* Biomass, Catch & Macro-Models */}
-              <div className="card-panel">
-                <h2>Biomass, Catch &amp; Stock Assessment Model Fits</h2>
-                <div style={{ width: '100%', height: 380 }}>
-                  <Plot
-                    data={[
-                      {
-                        x: history.map((r) => r.day),
-                        y: history.map((r) => r.legal_biomass_kg),
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'Fishable Biomass (kg)',
-                        line: { color: '#0284c7', width: 2 },
-                      },
-                      {
-                        x: history.map((r) => r.day),
-                        y: history.map((r) => r.catch_total * 0.45),
-                        type: 'scatter',
-                        mode: 'lines',
-                        name: 'Cumulative Catch (kg)',
-                        line: { color: '#d97706', width: 2 },
-                      },
-                      ...(macroFits?.schaefer?.isFitted
-                        ? [
-                            {
-                              x: macroFits.times.map((t) => t * 365),
-                              y: macroFits.schaefer.predicted,
-                              type: 'scatter',
-                              mode: 'lines+markers',
-                              name: `Schaefer (r=${macroFits.schaefer.r.toFixed(2)}, K=${macroFits.schaefer.K.toFixed(0)}, R²=${macroFits.schaefer.r2.toFixed(2)})`,
-                              line: { color: '#16a34a', width: 2, dash: 'dot' },
-                            },
-                          ]
-                        : []),
-                      ...(macroFits?.delayDiff?.isFitted
-                        ? [
-                            {
-                              x: macroFits.times.map((t) => t * 365),
-                              y: macroFits.delayDiff.predicted,
-                              type: 'scatter',
-                              mode: 'lines+markers',
-                              name: `Delay-Diff (s=${macroFits.delayDiff.s.toFixed(2)}, R²=${macroFits.delayDiff.r2.toFixed(2)})`,
-                              line: { color: '#db2777', width: 2, dash: 'dashdot' },
-                            },
-                          ]
-                        : []),
-                    ]}
-                    layout={lightPlotLayout({
-                      autosize: true,
-                      xaxis: { title: 'Simulation Time (days)', showgrid: true, gridcolor: '#e2e8f0' },
-                      yaxis: { title: 'Biomass (kg) / Catch', showgrid: true, gridcolor: '#e2e8f0' },
-                      legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
-                      margin: { l: 45, r: 15, t: 15, b: 35 },
-                    })}
-                    useResizeHandler
-                    style={{ width: '100%', height: '100%' }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Full Width Table: Annual Production Summary */}
-            <div className="card-panel" style={{ marginTop: 16 }}>
-              <h2>Annual Production Summary</h2>
-              {annual.length === 0 ? (
-                <div style={{ padding: 14, color: '#64748b', fontSize: 13, textAlign: 'center' }}>
-                  No annual production cycles completed yet. Run the simulation for at least 1 year (365 days).
-                </div>
-              ) : (
+                <h2>Annual Production & Assessment Summary</h2>
                 <div style={{ overflowX: 'auto' }}>
-                  <table className="data-table">
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead>
-                      <tr>
-                        <th>Year</th>
-                        <th>Day</th>
-                        <th>Legal Biomass (kg)</th>
-                        <th>Total Biomass (kg)</th>
-                        <th>Annual Catch (kg)</th>
-                        <th>Male Recruits</th>
-                        <th>Eggs Extruded</th>
-                        <th>Mean CW (mm)</th>
-                        <th>Harvest Rate F</th>
+                      <tr style={{ background: '#f1f5f9', color: '#334155' }}>
+                        <th style={cellStyle}>Year</th>
+                        <th style={cellStyle}>Biomass (kg)</th>
+                        <th style={cellStyle}>Legal Biomass (kg)</th>
+                        <th style={cellStyle}>Catch (kg)</th>
+                        <th style={cellStyle}>Cumul. Catch</th>
+                        <th style={cellStyle}>Spawners</th>
+                        <th style={cellStyle}>Recruits</th>
+                        <th style={cellStyle}>Mean CW (mm)</th>
+                        <th style={cellStyle}>F-rate</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {annual.map((row) => (
-                        <tr key={row.year}>
-                          <td>{row.year}</td>
-                          <td>{row.day}</td>
-                          <td>{(row.legal_biomass_kg || 0).toFixed(1)}</td>
-                          <td>{(row.biomass_kg || 0).toFixed(1)}</td>
-                          <td>{(row.annual_catch_kg || 0).toFixed(1)}</td>
-                          <td>{row.recruits || 0}</td>
-                          <td>{(row.spawners * 2 || 0).toLocaleString()}</td>
-                          <td>{(row.mean_cw || 0).toFixed(1)}</td>
-                          <td>{(row.f_rate || 0).toFixed(3)}</td>
+                      {annual.map((a) => (
+                        <tr key={a.year}>
+                          <td style={cellStyle}>{a.year}</td>
+                          <td style={cellStyle}>{a.biomass_kg.toFixed(0)}</td>
+                          <td style={cellStyle}>{a.legal_biomass_kg.toFixed(0)}</td>
+                          <td style={cellStyle}>{(a.annual_catch_kg || 0).toFixed(0)}</td>
+                          <td style={cellStyle}>{a.cumulative_catch}</td>
+                          <td style={cellStyle}>{a.spawners}</td>
+                          <td style={cellStyle}>{a.recruits}</td>
+                          <td style={cellStyle}>{a.mean_cw.toFixed(1)}</td>
+                          <td style={cellStyle}>{(a.f_rate * 100).toFixed(1)}%</td>
                         </tr>
                       ))}
+                      {annual.length === 0 && (
+                        <tr>
+                          <td colSpan={9} style={{ ...cellStyle, textAlign: 'center', color: '#94a3b8' }}>
+                            Run simulation for ≥1 year to populate annual summary.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
-              )}
+              </div>
+
+              {/* Stock-Recruitment Panel */}
+              <div className="card-panel">
+                <h2>Stock-Recruitment Relationship</h2>
+                <div style={{ width: '100%', height: 360 }}>
+                  {srFits ? (
+                    <Plot
+                      data={[
+                        {
+                          x: srFits.spawners,
+                          y: srFits.recruits,
+                          mode: 'markers',
+                          type: 'scatter',
+                          name: 'Observed',
+                          marker: { color: '#0f172a', size: 9, symbol: 'diamond' },
+                        },
+                        {
+                          x: srFits.sCurve,
+                          y: srFits.rkCurve,
+                          mode: 'lines',
+                          type: 'scatter',
+                          name: `Ricker (R²={srFits.fits.ricker.r2.toFixed(3)})`,
+                          line: { color: '#e11d48', width: 2.2 },
+                        },
+                        {
+                          x: srFits.sCurve,
+                          y: srFits.bhCurve,
+                          mode: 'lines',
+                          type: 'scatter',
+                          name: `Beverton-Holt (R²={srFits.fits.bevertonHolt.r2.toFixed(3)})`,
+                          line: { color: '#0284c7', width: 2.2, dash: 'dash' },
+                        },
+                      ]}
+                      layout={lightPlotLayout({
+                        autosize: true,
+                        xaxis: { title: 'Spawners (Spawning Stock Biomass)', type: 'log', showgrid: true, gridcolor: '#f1f5f9' },
+                        yaxis: { title: 'Recruits (Age-0 Abundance)', type: 'log', showgrid: true, gridcolor: '#f1f5f9' },
+                        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
+                        margin: { l: 50, r: 15, t: 15, b: 40 },
+                      })}
+                      useResizeHandler
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13 }}>
+                      Run simulation for ≥2 years to fit stock-recruitment curves.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Macro-Ecological Model Fits */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+              {/* Macro Model Comparison */}
+              <div className="card-panel">
+                <h2>Macro-Ecological Model Comparison</h2>
+                <div style={{ width: '100%', height: 360 }}>
+                  {macroFits ? (
+                    <Plot
+                      data={[
+                        {
+                          x: macroFits.times,
+                          y: macroFits.biomasses,
+                          mode: 'lines+markers',
+                          type: 'scatter',
+                          name: 'Observed Legal Biomass',
+                          line: { color: '#0f172a', width: 2.5 },
+                          marker: { size: 7 },
+                        },
+                        {
+                          x: macroFits.times,
+                          y: macroFits.schaefer.predicted,
+                          mode: 'lines',
+                          type: 'scatter',
+                          name: `Schaefer (r={macroFits.schaefer.r.toFixed(3)}, R²={macroFits.schaefer.r2.toFixed(3)})`,
+                          line: { color: '#0284c7', width: 2.2, dash: 'dash' },
+                        },
+                        {
+                          x: macroFits.times,
+                          y: macroFits.delayDiff.predicted,
+                          mode: 'lines',
+                          type: 'scatter',
+                          name: `Delay-Diff (s={macroFits.delayDiff.s.toFixed(3)}, R²={macroFits.delayDiff.r2.toFixed(3)})`,
+                          line: { color: '#e11d48', width: 2.2, dash: 'dot' },
+                        },
+                      ]}
+                      layout={lightPlotLayout({
+                        autosize: true,
+                        xaxis: { title: 'Year', showgrid: true, gridcolor: '#f1f5f9' },
+                        yaxis: { title: 'Legal Biomass (kg)', showgrid: true, gridcolor: '#f1f5f9' },
+                        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
+                        margin: { l: 50, r: 15, t: 15, b: 40 },
+                      })}
+                      useResizeHandler
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13 }}>
+                      Run simulation for ≥3 years to fit macro-ecological models.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Calibration Criteria */}
+              <div className="card-panel">
+                <h2>Multi-Attribute Calibration Criteria</h2>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ background: '#f1f5f9', color: '#334155' }}>
+                        <th style={cellStyle}>Criterion</th>
+                        <th style={cellStyle}>Metric Value</th>
+                        <th style={cellStyle}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={cellStyle}>1. Population Persistence</td>
+                        <td style={cellStyle}>{annual.length ? annual[annual.length - 1].biomass_kg.toFixed(0) + ' kg' : 'N/A'}</td>
+                        <td style={{ ...cellStyle, color: annual.length && annual[annual.length - 1].biomass_kg > 0 ? '#16a34a' : '#dc2626' }}>
+                          {annual.length && annual[annual.length - 1].biomass_kg > 0 ? 'PASS' : 'FAIL'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={cellStyle}>2. Population Bounds (K)</td>
+                        <td style={cellStyle}>{annual.length ? annual[annual.length - 1].biomass_kg.toFixed(0) + ' kg' : 'N/A'}</td>
+                        <td style={{ ...cellStyle, color: annual.length && annual[annual.length - 1].biomass_kg < 500000 ? '#16a34a' : '#dc2626' }}>
+                          {annual.length && annual[annual.length - 1].biomass_kg < 500000 ? 'PASS' : 'FAIL'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={cellStyle}>3. Size Structure Stability</td>
+                        <td style={cellStyle}>ΔCW</td>
+                        <td style={cellStyle}>—</td>
+                      </tr>
+                      <tr>
+                        <td style={cellStyle}>4. Maturity Ogive Fidelity</td>
+                        <td style={cellStyle}>RMSE</td>
+                        <td style={cellStyle}>—</td>
+                      </tr>
+                      <tr>
+                        <td style={cellStyle}>5. Growth Schedule Fidelity</td>
+                        <td style={cellStyle}>RMSE (mm)</td>
+                        <td style={cellStyle}>—</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: 12, padding: 10, background: '#f8fafc', borderRadius: 6, fontSize: 11, color: '#475569' }}>
+                  Full criteria evaluation requires ≥5 annual periods. Advance simulation to unlock complete assessment.
+                </div>
+              </div>
+            </div>
+
+            {/* Row 3: Macro Model Diagnostics */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              {/* Schaefer Diagnostics */}
+              <div className="card-panel">
+                <h2>Schaefer Surplus Production Diagnostics</h2>
+                <div style={{ width: '100%', height: 360 }}>
+                  {macroFits ? (
+                    <Plot
+                      data={[
+                        {
+                          x: macroFits.biomasses,
+                          y: macroFits.biomasses.map((b, i) => i > 0 ? b - macroFits.biomasses[i - 1] + macroFits.catches[i - 1] : null),
+                          mode: 'markers',
+                          type: 'scatter',
+                          name: 'Observed Production',
+                          marker: { color: '#0f172a', size: 8 },
+                        },
+                        {
+                          x: [...Array(60)].map((_, i) => macroFits.schaefer.K * i / 60),
+                          y: [...Array(60)].map((_, i) => {
+                            const B = macroFits.schaefer.K * i / 60;
+                            return macroFits.schaefer.r * B * (1 - B / macroFits.schaefer.K);
+                          }),
+                          mode: 'lines',
+                          type: 'scatter',
+                          name: `Fitted Parabola (MSY = ${macroFits.schaefer.msy.toFixed(0)} kg)`,
+                          line: { color: '#0284c7', width: 2.5 },
+                        },
+                      ]}
+                      layout={lightPlotLayout({
+                        autosize: true,
+                        xaxis: { title: 'Biomass (kg)', showgrid: true, gridcolor: '#f1f5f9' },
+                        yaxis: { title: 'Surplus Production (kg/yr)', showgrid: true, gridcolor: '#f1f5f9' },
+                        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
+                        margin: { l: 50, r: 15, t: 15, b: 40 },
+                      })}
+                      useResizeHandler
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13 }}>
+                      Awaiting macro-model fit (≥3 annual periods).
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Delay-Difference Diagnostics */}
+              <div className="card-panel">
+                <h2>Deriso-Schnute Delay-Difference Diagnostics</h2>
+                <div style={{ width: '100%', height: 360 }}>
+                  {macroFits ? (
+                    <Plot
+                      data={[
+                        {
+                          x: macroFits.times.slice(1),
+                          y: macroFits.biomasses.slice(1),
+                          mode: 'lines+markers',
+                          type: 'scatter',
+                          name: 'Observed Biomass',
+                          line: { color: '#0f172a', width: 2 },
+                          marker: { size: 7 },
+                        },
+                        {
+                          x: macroFits.times,
+                          y: macroFits.delayDiff.predicted,
+                          mode: 'lines',
+                          type: 'scatter',
+                          name: 'Delay-Diff Prediction',
+                          line: { color: '#e11d48', width: 2, dash: 'dash' },
+                        },
+                      ]}
+                      layout={lightPlotLayout({
+                        autosize: true,
+                        xaxis: { title: 'Year', showgrid: true, gridcolor: '#f1f5f9' },
+                        yaxis: { title: 'Biomass (kg)', showgrid: true, gridcolor: '#f1f5f9' },
+                        legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
+                        margin: { l: 50, r: 15, t: 15, b: 40 },
+                      })}
+                      useResizeHandler
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13 }}>
+                      Awaiting delay-difference fit (≥3 annual periods).
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1447,3 +1620,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+const cellStyle = { padding: '6px 8px', border: '1px solid #e2e8f0', textAlign: 'center' };

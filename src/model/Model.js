@@ -66,7 +66,7 @@ export class Model {
 
     this.exclusionBoxes = [];
 
-    this.sampleResolution = 50;
+    this.sampleResolution = 400;
     this.buildEnvironmentalGrid();
 
     this.agents = [];
@@ -123,11 +123,11 @@ export class Model {
 
     for (let j = 0; j < nr; j++) {
       const v = (j - nr / 2) / (nr / 2);
-      const lat = baseLat + v * 0.05;
+      const lat = baseLat + v * 0.3;
       for (let i = 0; i < nr; i++) {
         const u = (i - nr / 2) / (nr / 2);
-        const dist = Math.sqrt(u * u + v * v);
-        const z = Math.max(10.0, centerDepth + 40.0 * (dist - 0.5) + 8.0 * Math.sin(u * 3.5));
+        const lon = (Number(this.aoi.longitude) || -59.0) + u * 0.5;
+        const z = scotianShelfDepth(lon, lat);
         const t = bottomTemperature(z, lat, this.tempOffset);
         let s = habitatSuitability(t, z);
         s = Math.max(0.0, Math.min(1.0, (s + this.habitatOffset) * this.habitatMultiplier));

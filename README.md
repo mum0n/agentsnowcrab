@@ -17,7 +17,7 @@ React/Electron port of TethysBio (snow crab IBM). Runs in any supported browser 
 Requires Node.js (not present in this environment — install first).
 
 ```powershell
-cd C:\Users\Nathalie\projects\agentsnowcrab
+cd agentsnowcrab
 npm install
 npm run dev          # browser dev server at http://localhost:5173
 npm run electron     # desktop app

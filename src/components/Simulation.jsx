@@ -22,7 +22,6 @@ export default function Simulation() {
     legalBiomass,
     totalBiomass,
     step,
-    run,
     history,
     updateParam,
     exportRun,
@@ -37,7 +36,7 @@ export default function Simulation() {
     if (!model) initialize(params.ibm.n_agents);
   }, [model, initialize, params.ibm.n_agents]);
 
-  const handleRunDays = (days) => run(days);
+  const handleRunDays = (days) => step(days);
 
   const applyPreset = (preset) => {
     if (preset === 'balanced') {
