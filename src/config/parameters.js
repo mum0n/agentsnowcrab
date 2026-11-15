@@ -28,6 +28,7 @@ export const DEFAULTS = {
     benthic_carrying_capacity: 6000.0,
     benthic_carrying_capacity_exponent: 2.0,
     food_availability: 1.0,
+    max_move_m_per_year: 7300.0,
     temp_offset: 0.0,
     temp_multiplier: 1.0,
     habitat_offset: 0.0,
@@ -54,6 +55,9 @@ export const DEFAULTS = {
   environment: {
     temp_offset: 0.0,
     temp_multiplier: 1.0,
+    temp_pref_min: -1.5,
+    temp_pref_opt: 5.0,
+    temp_pref_max: 10.0,
     food_availability: 1.0,
     benthic_carrying_capacity_density: 6000.0,
     benthic_carrying_capacity_exponent: 2.0,

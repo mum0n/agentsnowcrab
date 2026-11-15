@@ -91,23 +91,32 @@ export const useStore = create((set, get) => ({
     obj[parts[parts.length - 1]] = value;
 
     if (model) {
+      model.params = next;
       if (path === 'ibm.grid_size') model.gridSize = value;
       if (path === 'ibm.unit_meters') model.unitMeters = value;
       if (path === 'environment.temp_offset' || path === 'ibm.temp_offset') {
         model.tempOffset = value;
         model.buildEnvironmentalGrid();
+        model.updateEnvironmentalFields((model.day % 365) + 1);
       }
       if (path === 'environment.temp_multiplier' || path === 'ibm.temp_multiplier') {
         model.tempMultiplier = value;
         model.buildEnvironmentalGrid();
+        model.updateEnvironmentalFields((model.day % 365) + 1);
       }
       if (path === 'environment.habitat_offset' || path === 'ibm.habitat_offset') {
         model.habitatOffset = value;
         model.buildEnvironmentalGrid();
+        model.updateEnvironmentalFields((model.day % 365) + 1);
       }
       if (path === 'environment.habitat_multiplier' || path === 'ibm.habitat_multiplier') {
         model.habitatMultiplier = value;
         model.buildEnvironmentalGrid();
+        model.updateEnvironmentalFields((model.day % 365) + 1);
+      }
+      if (path.startsWith('environment.temp_pref_')) {
+        model.buildEnvironmentalGrid();
+        model.updateEnvironmentalFields((model.day % 365) + 1);
       }
       if (path === 'environment.food_availability' || path === 'ibm.food_availability') {
         model.foodAvailability = value;

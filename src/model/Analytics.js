@@ -125,12 +125,20 @@ export function seasonalBottomTemperatureCycle(
 /**
  * Realized Habitat Suitability Index (HSI) modulated by temperature and depth envelopes.
  */
-export function habitatSuitability(temp, depth) {
+export function habitatSuitability(temp, depth, env = {}) {
+  const tempMin = Number.isFinite(Number(env?.temp_pref_min)) ? Number(env.temp_pref_min) : -1.5;
+  const tempOpt = Number.isFinite(Number(env?.temp_pref_opt)) ? Number(env.temp_pref_opt) : 5.0;
+  const tempMax = Math.max(tempOpt + 0.1, Number.isFinite(Number(env?.temp_pref_max)) ? Number(env.temp_pref_max) : 10.0);
+
   let sT = 0.0;
-  if (temp < 10.0) {
-    sT = 1.0 / (1.0 + Math.exp(1.2 * (temp - 5.0)));
-    if (temp > 5.0) {
-      sT *= 0.5 * (1.0 + Math.cos((Math.PI * (temp - 5.0)) / 5.0));
+  if (temp > tempMin - 2.0 && temp < tempMax) {
+    if (temp < tempMin) {
+      sT = 0.5 * (1.0 + Math.cos((Math.PI * (tempMin - temp)) / 2.0));
+    } else {
+      sT = 1.0 / (1.0 + Math.exp(1.2 * (temp - tempOpt)));
+      if (temp > tempOpt) {
+        sT *= 0.5 * (1.0 + Math.cos((Math.PI * (temp - tempOpt)) / (tempMax - tempOpt)));
+      }
     }
   }
   let sZ = 0.0;
@@ -592,48 +600,109 @@ export function kdeDensity(values, from = 5, to = 160, n = 100, bandwidth = 4.0)
  */
 export function evaluatePopulationCriteria(history = [], agents = [], params = {}) {
   const k = params.environment?.benthic_carrying_capacity_density ?? 6000;
+  const critCfg = params.criteria || {};
+  const maxSizeDrift = critCfg.max_size_drift ?? 0.20;
+  const maxMaturityRmse = critCfg.max_maturity_rmse ?? 0.35;
+  const maxGrowthRmse = critCfg.max_growth_rmse ?? 15.0;
+  const windowSteps = critCfg.window_steps ?? 10;
+  const ogiveMinCount = critCfg.maturity_ogive_min_count ?? 5;
+
   const pops = history.map((h) => h.total || 0);
-  const minPop = pops.length ? Math.min(...pops) : 0;
-  const maxPop = pops.length ? Math.max(...pops) : 0;
-  const persistence = minPop >= 5;
-  const noExplosion = maxPop <= k * 5.0;
-
-  let sizeDrift = 0.0;
-  if (history.length >= 4) {
-    const tail = history.slice(-Math.min(10, history.length));
-    const c0 = Math.max(1.0, tail[0].mean_cw || 1.0);
-    const c1 = tail[tail.length - 1].mean_cw || c0;
-    sizeDrift = (c1 - c0) / c0;
-  }
-
-  let maturityRmse = 0.0;
-  const emp = computeEmpiricalOgive(agents, 'male', 5.0);
-  if (emp.sizes.length > 0) {
-    const l50 = params.maturity?.cw50 ?? 91.8;
-    const beta = params.maturity?.beta ?? 6.9957;
-    let se = 0;
-    for (let i = 0; i < emp.sizes.length; i++) {
-      const sz = emp.sizes[i];
-      const pred = sz < 35.0 ? 0.0 : 1.0 / (1.0 + Math.exp(-(sz - l50) / beta));
-      se += (emp.proportions[i] - pred) ** 2;
-    }
-    maturityRmse = Math.sqrt(se / emp.sizes.length);
-  }
-
-  let growthRmse = 0.0;
   const living = (agents || []).filter((a) => a.alive);
+  const nLiving = living.length;
+  const minPop = pops.length ? Math.min(...pops) : nLiving;
+  const maxPop = pops.length ? Math.max(...pops) : nLiving;
+  const persistence = nLiving >= 1 && minPop >= 1;
+  const noExplosion = maxPop <= k * 3.0;
+
+  let sizeDrift = null;
+  let isSizeSteady = false;
+  if (history.length >= 4) {
+    const tail = history.slice(-Math.min(windowSteps, history.length));
+    const sizes = tail.map((h) => Number(h.mean_cw) || 0).filter((v) => v > 0);
+    if (sizes.length >= 2) {
+      const meanRecent = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+      if (meanRecent > 0) {
+        sizeDrift = Math.abs(sizes[sizes.length - 1] - sizes[0]) / meanRecent;
+        isSizeSteady = sizeDrift <= maxSizeDrift;
+      }
+    }
+  }
+
+  let maturityRmse = null;
+  let isMaturityRealistic = false;
+  const emp = computeEmpiricalOgive(living, 'male', 5.0);
+  if (emp.sizes.length > 0) {
+    const m = params.maturity || {};
+    const l50 = m.maturity_l50_male ?? m.cw50 ?? 91.8;
+    const slope = m.maturity_slope_male ?? m.beta ?? 6.9957;
+    const gate = m.maturity_size_gate ?? 35.0;
+    let se = 0;
+    let validBins = 0;
+    for (let i = 0; i < emp.sizes.length; i++) {
+      if ((emp.counts[i] || 0) < ogiveMinCount) continue;
+      const sz = emp.sizes[i];
+      const pred = sz < gate ? 0.0 : 1.0 / (1.0 + Math.exp(-slope * (Math.log(sz) - Math.log(l50))));
+      se += (emp.proportions[i] - pred) ** 2;
+      validBins += 1;
+    }
+    if (validBins > 0) {
+      maturityRmse = Math.sqrt(se / validBins);
+      isMaturityRealistic = maturityRmse <= maxMaturityRmse;
+    }
+  }
+
+  let growthRmse = null;
+  let isGrowthRealistic = false;
   if (living.length > 0) {
-    const meanCw = living.reduce((acc, a) => acc + a.cw, 0) / living.length;
-    growthRmse = Math.abs(meanCw - 65.0) / 65.0;
+    const g = params.growth || {};
+    const refMale = new Map();
+    const refFemale = new Map();
+    let cwM = 4.5;
+    let cwF = 4.5;
+    for (let stg = 4; stg <= 19; stg++) {
+      refMale.set(stg, cwM);
+      refFemale.set(stg, cwF);
+      cwM = Math.min(g.max_size_male ?? 160.0, Math.exp((g.growth_int_male ?? 0.30153) + (g.growth_slp_male ?? 1.00027) * Math.log(cwM)));
+      cwF = Math.min(g.max_size_female ?? 95.0, Math.exp((g.growth_int_female ?? 0.1931) + (g.growth_slp_female ?? 1.0372) * Math.log(cwF)));
+    }
+    const obsByKey = new Map();
+    for (const a of living) {
+      const key = `${a.sex}:${a.stage}`;
+      if (!obsByKey.has(key)) obsByKey.set(key, []);
+      obsByKey.get(key).push(a.cw);
+    }
+    let sqErrSum = 0;
+    let nGroups = 0;
+    for (const [key, vals] of obsByKey.entries()) {
+      if (vals.length < 3) continue;
+      const [sex, stgStr] = key.split(':');
+      const stg = Number(stgStr);
+      const refVal = sex === 'male' ? refMale.get(stg) : refFemale.get(stg);
+      if (refVal !== undefined) {
+        const meanObs = vals.reduce((a, b) => a + b, 0) / vals.length;
+        sqErrSum += (meanObs - refVal) ** 2;
+        nGroups += 1;
+      }
+    }
+    if (nGroups > 0) {
+      growthRmse = Math.sqrt(sqErrSum / nGroups);
+      isGrowthRealistic = growthRmse <= maxGrowthRmse;
+    }
   }
 
   return {
     persistence,
     noExplosion,
+    nLiving,
+    maxPop,
+    k,
     sizeDrift,
-    sizeStabilityOk: Math.abs(sizeDrift) <= 0.25,
+    sizeStabilityOk: isSizeSteady,
     maturityRmse,
+    isMaturityRealistic,
     growthRmse,
+    isGrowthRealistic,
   };
 }
 

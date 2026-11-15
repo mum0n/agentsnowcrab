@@ -129,6 +129,28 @@ export default function Dashboard() {
     return seasonalBottomTemperatureCycle(aoi.longitude, aoi.latitude, depth, toff, tmult, 80.0);
   }, [aoi, params]);
 
+  // Fixed color-scale bounds for Tab 2 Spatial Habitat map
+  const spatialColorBounds = useMemo(() => {
+    if (backgroundLayer === 'hsi' || backgroundLayer === 'habitat_quality') {
+      return { zmin: 0.0, zmax: 1.0 };
+    }
+    if (backgroundLayer === 'temperature') {
+      const temps = tempCycle?.temps || [];
+      if (temps.length > 0) {
+        const tMin = temps.reduce((a, b) => (b < a ? b : a), Infinity);
+        const tMax = temps.reduce((a, b) => (b > a ? b : a), -Infinity);
+        return { zmin: tMin, zmax: tMax > tMin ? tMax : tMin + 1.0 };
+      }
+      return { zmin: -1.0, zmax: 8.0 };
+    }
+    if (gridDepths.length > 0) {
+      const dMin = gridDepths.reduce((a, b) => (b < a ? b : a), Infinity);
+      const dMax = gridDepths.reduce((a, b) => (b > a ? b : a), -Infinity);
+      return { zmin: dMin, zmax: dMax > dMin ? dMax : dMin + 10.0 };
+    }
+    return { zmin: 0.0, zmax: 400.0 };
+  }, [backgroundLayer, tempCycle, gridDepths]);
+
   // Environmental driver distributions
   const gridDepths = useMemo(() => (model?.env?.depth ? Array.from(model.env.depth) : []), [model, day]);
   const gridTemps = useMemo(() => (model?.env?.temperature ? Array.from(model.env.temperature) : []), [model, day]);
@@ -188,8 +210,10 @@ export default function Dashboard() {
   // Stock-recruitment fitting (Tab 4)
   const srFits = useMemo(() => {
     if (!annual || annual.length < 2) return null;
-    const spawners = annual.map((a) => a.spawners);
-    const recruits = annual.map((a) => a.recruits);
+    const validPairs = annual.filter((a) => a.spawners > 0 && a.recruits > 0);
+    if (validPairs.length < 2) return null;
+    const spawners = validPairs.map((a) => a.spawners);
+    const recruits = validPairs.map((a) => a.recruits);
     const fits = fitStockRecruitment(spawners, recruits);
 
     if (!fits.isFitted) return null;
@@ -240,7 +264,7 @@ export default function Dashboard() {
   };
 
   const currentT = bottomTemperature(aoi.depth || 135, aoi.latitude, params.environment?.temp_offset || 0);
-  const currentHSI = habitatSuitability(currentT, aoi.depth || 135);
+  const currentHSI = habitatSuitability(currentT, aoi.depth || 135, params.environment);
 
   const meanDepthVal = gridDepths.length ? (gridDepths.reduce((a, b) => a + b, 0) / gridDepths.length).toFixed(1) : '135.0';
   const maxDepthVal = gridDepths.length ? gridDepths.reduce((a, b) => (a > b ? a : b), -Infinity) : 0;
@@ -587,7 +611,7 @@ export default function Dashboard() {
               <div className="card-panel">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                    Spatial Habitat & Organism Distribution (Day {day} / Year {(day / 365).toFixed(1)})
+                    Spatial Habitat & Organism Distribution
                   </span>
                   <span style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic' }}>
                     Drag mouse to set Exclusion Area
@@ -608,6 +632,9 @@ export default function Dashboard() {
                               y: spatialMatrix.y,
                               type: 'heatmap',
                               zsmooth: 'best',
+                              zauto: false,
+                              zmin: spatialColorBounds.zmin,
+                              zmax: spatialColorBounds.zmax,
                               colorscale:
                                 backgroundLayer === 'temperature'
                                   ? 'Inferno'
@@ -636,7 +663,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Larvae / Undifferentiated',
-                        marker: { color: '#E69F00', size: 4, line: { color: '#0f172a', width: 0.6 } },
+                        marker: { color: '#E69F00', size: 2.5, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                       {
                         x: immFemales.map((a) => a.x),
@@ -644,7 +671,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Immature Female',
-                        marker: { color: '#CC79A7', size: 4.5, line: { color: '#0f172a', width: 0.6 } },
+                        marker: { color: '#CC79A7', size: 2.7, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                       {
                         x: immMales.map((a) => a.x),
@@ -652,7 +679,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Immature Male',
-                        marker: { color: '#56B4E9', size: 4.5, line: { color: '#0f172a', width: 0.6 } },
+                        marker: { color: '#56B4E9', size: 2.7, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                       {
                         x: matFemales.map((a) => a.x),
@@ -660,7 +687,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Mature Female',
-                        marker: { color: '#785EF0', size: 5.5, line: { color: '#0f172a', width: 0.6 } },
+                        marker: { color: '#785EF0', size: 3.3, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                       {
                         x: oviFemales.map((a) => a.x),
@@ -668,7 +695,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Ovigerous Female',
-                        marker: { color: '#D55E00', size: 5.5, line: { color: '#0f172a', width: 0.6 } },
+                        marker: { color: '#D55E00', size: 3.3, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                       {
                         x: sublegalMatMales.map((a) => a.x),
@@ -676,7 +703,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Sublegal Mature Male',
-                        marker: { color: '#0072B2', size: 5.5, line: { color: '#0f172a', width: 0.6 } },
+                        marker: { color: '#0072B2', size: 3.3, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                       {
                         x: legalMatMales.map((a) => a.x),
@@ -684,7 +711,7 @@ export default function Dashboard() {
                         type: 'scatter',
                         mode: 'markers',
                         name: 'Legal Mature Male (≥95mm)',
-                        marker: { color: '#003B73', size: 6.5, line: { color: '#0f172a', width: 0.7 } },
+                        marker: { color: '#003B73', size: 4.0, opacity: 0.72, line: { color: '#0f172a', width: 0.4 } },
                       },
                     ]}
                     layout={lightPlotLayout({
@@ -726,6 +753,24 @@ export default function Dashboard() {
                     useResizeHandler
                     style={{ width: '100%', height: '100%' }}
                   />
+                </div>
+
+                {/* External Organism Class Legend */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', marginTop: 8, padding: '6px 8px', background: '#f8fafc', borderRadius: 4, border: '1px solid #e2e8f0', fontSize: 10.5, color: '#334155' }}>
+                  {[
+                    { label: 'Larvae / Undiff.', color: '#E69F00' },
+                    { label: 'Immature Female', color: '#CC79A7' },
+                    { label: 'Immature Male', color: '#56B4E9' },
+                    { label: 'Mature Female', color: '#785EF0' },
+                    { label: 'Ovigerous Female', color: '#D55E00' },
+                    { label: 'Sublegal Mature Male', color: '#0072B2' },
+                    { label: 'Legal Mature Male (≥95mm)', color: '#003B73' },
+                  ].map((item) => (
+                    <span key={item.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, opacity: 0.78, border: '1px solid #0f172a', display: 'inline-block' }} />
+                      {item.label}
+                    </span>
+                  ))}
                 </div>
 
                 {/* Below Plot MPA Bar */}
@@ -839,6 +884,59 @@ export default function Dashboard() {
                         className="ctrl-input"
                         value={params.environment?.benthic_carrying_capacity_density || 6000}
                         onChange={(e) => updateParam('environment.benthic_carrying_capacity_density', parseFloat(e.target.value) || 6000)}
+                      />
+                    </div>
+                    <div className="ctrl-row">
+                      <span>Temp Pref Min (°C):</span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        className="ctrl-input"
+                        value={params.environment?.temp_pref_min ?? -1.5}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v)) updateParam('environment.temp_pref_min', v);
+                        }}
+                      />
+                    </div>
+                    <div className="ctrl-row">
+                      <span>Temp Pref Opt (°C):</span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        className="ctrl-input"
+                        value={params.environment?.temp_pref_opt ?? 5.0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v)) updateParam('environment.temp_pref_opt', v);
+                        }}
+                      />
+                    </div>
+                    <div className="ctrl-row">
+                      <span>Temp Pref Max (°C):</span>
+                      <input
+                        type="number"
+                        step="0.5"
+                        className="ctrl-input"
+                        value={params.environment?.temp_pref_max ?? 10.0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v)) updateParam('environment.temp_pref_max', v);
+                        }}
+                      />
+                    </div>
+                    <div className="ctrl-row">
+                      <span>Max Movement (m/yr):</span>
+                      <input
+                        type="number"
+                        step="500"
+                        min="0"
+                        className="ctrl-input"
+                        value={params.ibm?.max_move_m_per_year ?? 7300}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v) && v >= 0) updateParam('ibm.max_move_m_per_year', v);
+                        }}
                       />
                     </div>
                     <div className="ctrl-row">
@@ -1478,43 +1576,43 @@ export default function Dashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td style={cellStyle}>1. Population Persistence</td>
-                        <td style={cellStyle}>{annual.length ? annual[annual.length - 1].biomass_kg.toFixed(0) + ' kg' : 'N/A'}</td>
-                        <td style={{ ...cellStyle, color: annual.length && annual[annual.length - 1].biomass_kg > 0 ? '#16a34a' : '#dc2626' }}>
-                          {annual.length && annual[annual.length - 1].biomass_kg > 0 ? 'PASS' : 'FAIL'}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style={cellStyle}>2. Population Bounds (K)</td>
-                        <td style={cellStyle}>{annual.length ? annual[annual.length - 1].biomass_kg.toFixed(0) + ' kg' : 'N/A'}</td>
-                        <td style={{ ...cellStyle, color: annual.length && annual[annual.length - 1].biomass_kg < 500000 ? '#16a34a' : '#dc2626' }}>
-                          {annual.length && annual[annual.length - 1].biomass_kg < 500000 ? 'PASS' : 'FAIL'}
-                        </td>
-                      </tr>
                       {(() => {
                         const crit = evaluatePopulationCriteria(history, agents, params);
                         return (
                           <>
                             <tr>
-                              <td style={cellStyle}>3. Size Structure Stability</td>
-                              <td style={cellStyle}>{(crit.sizeDrift * 100).toFixed(1)}%</td>
-                              <td style={{ ...cellStyle, color: crit.sizeStabilityOk ? '#16a34a' : '#dc2626' }}>
-                                {crit.sizeStabilityOk ? 'PASS' : 'WARN'}
+                              <td style={cellStyle}>1. Population Persistence (≥ 1)</td>
+                              <td style={cellStyle}>{`${crit.nLiving} alive`}</td>
+                              <td style={{ ...cellStyle, color: crit.persistence ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                                {crit.persistence ? 'PASS' : 'FAIL'}
                               </td>
                             </tr>
                             <tr>
-                              <td style={cellStyle}>4. Maturity Ogive Fidelity</td>
-                              <td style={cellStyle}>{crit.maturityRmse.toFixed(3)}</td>
-                              <td style={{ ...cellStyle, color: crit.maturityRmse <= 0.25 ? '#16a34a' : '#f59e0b' }}>
-                                {crit.maturityRmse <= 0.25 ? 'PASS' : 'CHECK'}
+                              <td style={cellStyle}>2. Population Bounds (≤ 3K)</td>
+                              <td style={cellStyle}>{`${crit.maxPop} / ${Math.round(crit.k * 3)}`}</td>
+                              <td style={{ ...cellStyle, color: crit.noExplosion ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                                {crit.noExplosion ? 'PASS' : 'FAIL'}
                               </td>
                             </tr>
                             <tr>
-                              <td style={cellStyle}>5. Growth Schedule Fidelity</td>
-                              <td style={cellStyle}>{(crit.growthRmse * 100).toFixed(1)}%</td>
-                              <td style={{ ...cellStyle, color: crit.growthRmse <= 0.35 ? '#16a34a' : '#f59e0b' }}>
-                                {crit.growthRmse <= 0.35 ? 'PASS' : 'CHECK'}
+                              <td style={cellStyle}>3. Size Structure Stability (≤ 20%)</td>
+                              <td style={cellStyle}>{crit.sizeDrift !== null ? `${(crit.sizeDrift * 100).toFixed(1)}%` : 'N/A'}</td>
+                              <td style={{ ...cellStyle, color: crit.sizeDrift === null ? '#64748b' : (crit.sizeStabilityOk ? '#16a34a' : '#dc2626'), fontWeight: 600 }}>
+                                {crit.sizeDrift === null ? 'PENDING' : (crit.sizeStabilityOk ? 'PASS' : 'FAIL')}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style={cellStyle}>4. Maturity Ogive Fidelity (RMSE ≤ 0.35)</td>
+                              <td style={cellStyle}>{crit.maturityRmse !== null ? crit.maturityRmse.toFixed(3) : 'N/A'}</td>
+                              <td style={{ ...cellStyle, color: crit.maturityRmse === null ? '#64748b' : (crit.isMaturityRealistic ? '#16a34a' : '#dc2626'), fontWeight: 600 }}>
+                                {crit.maturityRmse === null ? 'PENDING' : (crit.isMaturityRealistic ? 'PASS' : 'FAIL')}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style={cellStyle}>5. Growth Schedule Fidelity (RMSE ≤ 15 mm)</td>
+                              <td style={cellStyle}>{crit.growthRmse !== null ? `${crit.growthRmse.toFixed(1)} mm` : 'N/A'}</td>
+                              <td style={{ ...cellStyle, color: crit.growthRmse === null ? '#64748b' : (crit.isGrowthRealistic ? '#16a34a' : '#dc2626'), fontWeight: 600 }}>
+                                {crit.growthRmse === null ? 'PENDING' : (crit.isGrowthRealistic ? 'PASS' : 'FAIL')}
                               </td>
                             </tr>
                           </>
@@ -1576,44 +1674,54 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Delay-Difference Diagnostics */}
+              {/* Macro-Model Residual Diagnostics */}
               <div className="card-panel">
-                <h2>Deriso-Schnute Delay-Difference Diagnostics</h2>
+                <h2>Macro-Model Residual Diagnostics (Obs − Pred)</h2>
                 <div style={{ width: '100%', height: 360 }}>
                   {macroFits ? (
                     <Plot
                       data={[
                         {
-                          x: macroFits.times.slice(1),
-                          y: macroFits.biomasses.slice(1),
+                          x: macroFits.times,
+                          y: macroFits.biomasses.map((b, i) => b - (macroFits.schaefer.predicted[i] ?? b)),
                           mode: 'lines+markers',
                           type: 'scatter',
-                          name: 'Observed Biomass',
-                          line: { color: '#0f172a', width: 2 },
-                          marker: { size: 7 },
+                          name: `Schaefer Residuals (R²=${macroFits.schaefer.r2.toFixed(3)})`,
+                          line: { color: '#0284c7', width: 2 },
+                          marker: { size: 6 },
                         },
                         {
                           x: macroFits.times,
-                          y: macroFits.delayDiff.predicted,
+                          y: macroFits.biomasses.map((b, i) => b - (macroFits.delayDiff.predicted[i] ?? b)),
+                          mode: 'lines+markers',
+                          type: 'scatter',
+                          name: `Delay-Diff Residuals (s=${macroFits.delayDiff.s.toFixed(3)}, R²=${macroFits.delayDiff.r2.toFixed(3)})`,
+                          line: { color: '#e11d48', width: 2, dash: 'dash' },
+                          marker: { size: 6 },
+                        },
+                        {
+                          x: [macroFits.times[0], macroFits.times[macroFits.times.length - 1]],
+                          y: [0, 0],
                           mode: 'lines',
                           type: 'scatter',
-                          name: 'Delay-Diff Prediction',
-                          line: { color: '#e11d48', width: 2, dash: 'dash' },
+                          name: 'Zero Residual',
+                          line: { color: '#94a3b8', width: 1, dash: 'dot' },
+                          showlegend: false,
                         },
                       ]}
                       layout={lightPlotLayout({
                         autosize: true,
                         xaxis: { title: 'Year', showgrid: true, gridcolor: '#f1f5f9' },
-                        yaxis: { title: 'Biomass (kg)', showgrid: true, gridcolor: '#f1f5f9' },
+                        yaxis: { title: 'Biomass Residual (kg)', showgrid: true, gridcolor: '#f1f5f9' },
                         legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#cbd5e1', borderwidth: 1 },
-                        margin: { l: 50, r: 15, t: 15, b: 40 },
+                        margin: { l: 55, r: 15, t: 15, b: 40 },
                       })}
                       useResizeHandler
                       style={{ width: '100%', height: '100%' }}
                     />
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13 }}>
-                      Awaiting delay-difference fit (≥3 annual periods).
+                      Awaiting macro-model residuals (≥3 annual periods).
                     </div>
                   )}
                 </div>

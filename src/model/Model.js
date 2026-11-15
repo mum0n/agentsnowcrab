@@ -130,7 +130,7 @@ export class Model {
         const lon = (Number(this.aoi.longitude) || -59.0) + u * 0.5;
         const z = scotianShelfDepth(lon, lat);
         const t = bottomTemperature(z, lat, this.tempOffset);
-        let s = habitatSuitability(t, z);
+        let s = habitatSuitability(t, z, this.params.environment);
         s = Math.max(0.0, Math.min(1.0, (s + this.habitatOffset) * this.habitatMultiplier));
 
         const idx = j * nr + i;
@@ -162,7 +162,7 @@ export class Model {
       const baseAmp = Math.max(0.5, 5.0 * Math.exp(-z / 100.0));
       const t = baseTemperature[k] + baseAmp * tMult * sinPhase;
       temperature[k] = t;
-      const s = habitatSuitability(t, z);
+      const s = habitatSuitability(t, z, this.params.environment);
       hsi[k] = Math.max(0.0, Math.min(1.0, (s + hOff) * hMult));
     }
   }
@@ -266,7 +266,10 @@ export class Model {
     const inSeason = fStart <= fEnd ? (dayOfYear >= fStart && dayOfYear <= fEnd) : (dayOfYear >= fStart || dayOfYear <= fEnd);
 
     const gsz = this.gridSize;
-    const stepSize = Math.max(1, Math.round(gsz * 0.02));
+    const daysPerYear = this.params.simulation?.days_per_year ?? 365.0;
+    const maxMovePerYear = this.params.ibm?.max_move_m_per_year ?? this.params.simulation?.max_move_m_per_year ?? 7300.0;
+    const unitMeters = Math.max(0.01, Number(this.unitMeters) || this.params.ibm?.unit_meters || 1.0);
+    const stepSize = Math.max(0, ((maxMovePerYear / daysPerYear) * dt) / unitMeters);
 
     for (let i = 0; i < this.agents.length; i++) {
       const a = this.agents[i];
@@ -432,8 +435,9 @@ export class Model {
 
     if (this.day > 0 && this.day % 365 === 0) {
       const year = Math.round(this.day / 365);
-      const recruits = Math.max(1, this.stageCounts.slice(4, 12).reduce((a, b) => a + b, 0));
-      const spawners = Math.max(1, Math.round(this.pelagicCohorts.egg / 2));
+      const prevBirths = this.annual.length ? (this.annual[this.annual.length - 1].cumulative_births || 0) : 0;
+      const recruits = Math.max(0, this.births - prevBirths);
+      const spawners = matureFemales.length;
       const annualCatch = this.catchTotal - (this.annual.length ? this.annual[this.annual.length - 1].cumulative_catch : 0);
 
       this.annual.push({
@@ -443,6 +447,7 @@ export class Model {
         legal_biomass_kg: legalBiomassKg,
         annual_catch_kg: annualCatch * 0.45,
         cumulative_catch: this.catchTotal,
+        cumulative_births: this.births,
         spawners,
         recruits,
         mean_cw: meanCW,
