@@ -26,21 +26,39 @@ import {
 } from './Analytics.js';
 import { SCOTIAN_SHELF_GEO } from '../data/scotianShelfGeo.js';
 
+const catmullRom = (p0, p1, p2, p3, t) => {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return 0.5 * (
+    2.0 * p1 +
+    (-p0 + p2) * t +
+    (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2 +
+    (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3
+  );
+};
+
 export const scotianShelfDepth = (lon, lat) => {
   const g = SCOTIAN_SHELF_GEO;
   if (g && g.z && g.nx && g.ny) {
     const u = ((lon - g.lonMin) / (g.lonMax - g.lonMin)) * (g.nx - 1);
     const v = ((lat - g.latMin) / (g.latMax - g.latMin)) * (g.ny - 1);
-    const i0 = Math.max(0, Math.min(g.nx - 2, Math.floor(u)));
-    const j0 = Math.max(0, Math.min(g.ny - 2, Math.floor(v)));
-    const du = Math.max(0.0, Math.min(1.0, u - i0));
-    const dv = Math.max(0.0, Math.min(1.0, v - j0));
-    const z00 = g.z[j0 * g.nx + i0];
-    const z10 = g.z[j0 * g.nx + i0 + 1];
-    const z01 = g.z[(j0 + 1) * g.nx + i0];
-    const z11 = g.z[(j0 + 1) * g.nx + i0 + 1];
-    const zInterp = (1 - du) * (1 - dv) * z00 + du * (1 - dv) * z10 + (1 - du) * dv * z01 + du * dv * z11;
-    return Math.round(Math.max(10.0, zInterp));
+    const i1 = Math.max(0, Math.min(g.nx - 2, Math.floor(u)));
+    const j1 = Math.max(0, Math.min(g.ny - 2, Math.floor(v)));
+    const du = Math.max(0.0, Math.min(1.0, u - i1));
+    const dv = Math.max(0.0, Math.min(1.0, v - j1));
+    const ix = [
+      Math.max(0, i1 - 1),
+      i1,
+      Math.min(g.nx - 1, i1 + 1),
+      Math.min(g.nx - 1, i1 + 2),
+    ];
+    const rowVal = (jj) => {
+      const jc = Math.max(0, Math.min(g.ny - 1, jj));
+      const off = jc * g.nx;
+      return catmullRom(g.z[off + ix[0]], g.z[off + ix[1]], g.z[off + ix[2]], g.z[off + ix[3]], du);
+    };
+    const zInterp = catmullRom(rowVal(j1 - 1), rowVal(j1), rowVal(j1 + 1), rowVal(j1 + 2), dv);
+    return Math.max(10.0, zInterp);
   }
   return 135;
 };
