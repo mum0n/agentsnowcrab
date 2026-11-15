@@ -12,6 +12,7 @@ import {
   growthIncrement,
   maturityProbability,
   mortalityHazards,
+  calculateEnergyChange,
   fecundity,
   biomassKg,
   isEmpiricallyMeasured,
@@ -142,9 +143,28 @@ export class Model {
     this.env = {
       resolution: nr,
       depth: depthGrid,
+      baseTemperature: new Float64Array(tempGrid),
       temperature: tempGrid,
       hsi: hsiGrid,
     };
+  }
+
+  updateEnvironmentalFields(dayOfYear) {
+    if (!this.env?.baseTemperature) return;
+    const { depth, baseTemperature, temperature, hsi } = this.env;
+    const phaseArg = (2.0 * Math.PI * (dayOfYear - 80.0)) / 365.0;
+    const sinPhase = Math.sin(phaseArg);
+    const tMult = this.tempMultiplier ?? 1.0;
+    const hOff = this.habitatOffset ?? 0.0;
+    const hMult = this.habitatMultiplier ?? 1.0;
+    for (let k = 0; k < depth.length; k++) {
+      const z = depth[k];
+      const baseAmp = Math.max(0.5, 5.0 * Math.exp(-z / 100.0));
+      const t = baseTemperature[k] + baseAmp * tMult * sinPhase;
+      temperature[k] = t;
+      const s = habitatSuitability(t, z);
+      hsi[k] = Math.max(0.0, Math.min(1.0, (s + hOff) * hMult));
+    }
   }
 
   getEnvAt(x, y) {
@@ -236,10 +256,14 @@ export class Model {
 
     // 2. Iterate over benthic agents
     const survivors = [];
+    const dt = this.params.simulation?.dt ?? 1.0;
     const legalThreshold = fishery.legal_size_male ?? fishery.legal_size_mm ?? 95.0;
-    const fishProbDaily = fishery.fishing_probability_daily ?? 0.002;
+    const fishProbDaily = fishery.fishing_probability_daily ?? 0.0;
+    const fStart = fishery.fishing_season_start ?? 90;
+    const fEnd = fishery.fishing_season_end ?? 150;
     const dayOfYear = (this.day % 365) + 1;
-    const inSeason = dayOfYear >= (fishery.fishing_season_start ?? 90) && dayOfYear <= (fishery.fishing_season_end ?? 150);
+    this.updateEnvironmentalFields(dayOfYear);
+    const inSeason = fStart <= fEnd ? (dayOfYear >= fStart && dayOfYear <= fEnd) : (dayOfYear >= fStart || dayOfYear <= fEnd);
 
     const gsz = this.gridSize;
     const stepSize = Math.max(1, Math.round(gsz * 0.02));
@@ -250,6 +274,17 @@ export class Model {
 
       const envAt = this.getEnvAt(a.x, a.y);
       const cellT = ambientT !== null ? ambientT : envAt.temperature;
+      const envParams = this.params.environment || {};
+      const cellFood = Array.isArray(this.foodAvailability)
+        ? (this.foodAvailability[Math.min(this.foodAvailability.length - 1, Math.max(0, Math.round(a.y) * gsz + Math.round(a.x)))] ?? 5.0)
+        : (Number(this.foodAvailability) || 1.0) * 5.0;
+
+      // Bioenergetics & degree-day accumulation
+      a.degree_days = (a.degree_days || 0) + Math.max(0.0, cellT + 1.5) * dt;
+      if (toggles.use_energetics !== false) {
+        const dE = calculateEnergyChange(a, cellT, cellFood, envParams);
+        a.energy_reserve = (a.energy_reserve ?? 10.0) + dE * dt;
+      }
 
       // Directed movement taxis toward cold, food-rich / high HSI cells
       if (toggles.directed_taxis !== false && toggles.use_movement !== false) {
@@ -275,49 +310,54 @@ export class Model {
         a.y = Math.max(0, Math.min(gsz - 1, a.y + chosen.dy));
       }
 
-      // Molting and growth increments
+      // Ecdysis-linked growth and terminal molt
       if (toggles.molting !== false && !a.mature) {
         const moltProb = a.stage <= 6 ? 0.015 : a.stage <= 9 ? 0.008 : 0.004;
         if (Math.random() < moltProb) {
-          a.cw = growthIncrement(a, cellT, g);
-          if (a.sex === 'male') {
-            a.stage = Math.min(19, a.stage + 1);
-          } else {
-            a.stage = Math.min(16, a.stage + 1);
-          }
-
-          if (!a.mature && Math.random() < maturityProbability(a, cellT, m)) {
+          const maxStage = a.sex === 'male' ? 19 : 16;
+          const nextStage = Math.min(maxStage, a.stage + 1);
+          const probMat = maturityProbability(a, cellT, m);
+          const isMaturing = Math.random() < probMat || nextStage >= maxStage;
+          a.cw = growthIncrement(a, cellT, g, isMaturing);
+          a.stage = nextStage;
+          if (isMaturing) {
             a.mature = true;
             a.shell_age = 0;
           }
         }
       }
-      if (a.mature) a.shell_age += 1;
+      if (a.mature) a.shell_age += dt;
 
       // Natural mortality
-      const haz = mortalityHazards(a, nMeasured, K, cellT, mo, toggles);
+      const haz = mortalityHazards(a, nMeasured, K, cellT, mo, toggles, dt);
       if (Math.random() < haz) {
         a.alive = false;
         this.deaths += 1;
         continue;
       }
 
-      // Commercial fishery harvest (strictly excluded inside active ExclusionBox MPAs)
+      // Commercial fishery harvest (size-based legal male, selectivity, dt-scaled, outside MPAs)
       const inReserve = isInExclusionZones(a.x, a.y, this.exclusionBoxes);
       if (
+        fishProbDaily > 0 &&
         inSeason &&
         !inReserve &&
         a.sex === 'male' &&
-        a.mature &&
         a.cw >= legalThreshold &&
-        Math.random() < fishProbDaily
+        a.cw >= 68.0
       ) {
-        a.fishery_removed = true;
-        a.alive = false;
-        this.catchTotal += 1;
-        this.catchLegal += 1;
-        this.deaths += 1;
-        continue;
+        const sel = 1.0 / (1.0 + Math.exp(-(a.cw - legalThreshold) / 5.0));
+        const pDaily = Math.min(0.999999, fishProbDaily * sel);
+        const pHarvest = -Math.expm1(dt * Math.log1p(-pDaily));
+        if (Math.random() < pHarvest) {
+          a.fishery_removed = true;
+          a.alive = false;
+          this.catchTotal += 1;
+          this.catchLegal += 1;
+          this.catchBiomassKg = (this.catchBiomassKg || 0) + biomassKg(a);
+          this.deaths += 1;
+          continue;
+        }
       }
 
       // Female egg extrusion
@@ -392,7 +432,7 @@ export class Model {
 
     if (this.day > 0 && this.day % 365 === 0) {
       const year = Math.round(this.day / 365);
-      const recruits = this.stageCounts[13] || 1;
+      const recruits = Math.max(1, this.stageCounts.slice(4, 12).reduce((a, b) => a + b, 0));
       const spawners = Math.max(1, Math.round(this.pelagicCohorts.egg / 2));
       const annualCatch = this.catchTotal - (this.annual.length ? this.annual[this.annual.length - 1].cumulative_catch : 0);
 

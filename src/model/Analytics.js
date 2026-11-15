@@ -66,10 +66,9 @@ export const DEFAULT_STAGE_DISTRIBUTION = [
 ];
 
 export const STAGE_LABELS = [
-  'Egg', 'Z1', 'Z2', 'Meg',
-  'J-I', 'J-II', 'J-III', 'J-IV', 'J-V',
-  'M-VI', 'M-VII', 'M-VIII', 'M-IX', 'M-X', 'M-XI+',
-  'F-VI', 'F-VII', 'F-VIII', 'F-IX', 'F-X+',
+  'Egg', 'z1', 'z2', 'm',
+  '1', '2', '3', '4', '5', '6', '7', '8',
+  '9', '10', '11', '12', '13', '14', '15', '16',
 ];
 
 /**
@@ -127,10 +126,23 @@ export function seasonalBottomTemperatureCycle(
  * Realized Habitat Suitability Index (HSI) modulated by temperature and depth envelopes.
  */
 export function habitatSuitability(temp, depth) {
-  const tOpt = Math.exp(-0.5 * (((temp - 2.0) / 2.2) ** 2));
-  const zOpt = Math.exp(-0.5 * (((depth - 150.0) / 75.0) ** 2));
-  const raw = tOpt * zOpt;
-  return Math.max(0.0, Math.min(1.0, raw));
+  let sT = 0.0;
+  if (temp < 10.0) {
+    sT = 1.0 / (1.0 + Math.exp(1.2 * (temp - 5.0)));
+    if (temp > 5.0) {
+      sT *= 0.5 * (1.0 + Math.cos((Math.PI * (temp - 5.0)) / 5.0));
+    }
+  }
+  let sZ = 0.0;
+  if (depth > 20.0 && depth < 400.0) {
+    sZ = Math.exp(-0.5 * (((depth - 140.0) / 90.0) ** 2));
+    if (depth < 50.0) {
+      sZ *= 0.5 * (1.0 - Math.cos((Math.PI * (depth - 20.0)) / 30.0));
+    } else if (depth > 300.0) {
+      sZ *= 0.5 * (1.0 + Math.cos((Math.PI * (depth - 300.0)) / 100.0));
+    }
+  }
+  return Math.max(0.0, Math.min(1.0, sT * sZ));
 }
 
 /**
@@ -454,5 +466,198 @@ export function fitDelayDifference(time, numbers, catches, lag = 1) {
     r2,
     predicted,
   };
+}
+
+/**
+ * Fit a Generalized Leslie / stage-projection model across annual stage abundance series.
+ */
+export function fitGeneralizedLeslieModel(time, numbers, catches = []) {
+  const nVals = numbers.map(Number);
+  const n = nVals.length;
+  if (n < 3) {
+    return { isFitted: false, lambda1: 1.0, r2: 0.0, predicted: [...nVals] };
+  }
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const c = Number(catches[i] || 0);
+    const base = Math.max(1e-6, nVals[i] - c);
+    num += base * nVals[i + 1];
+    den += base * base;
+  }
+  const lambda1 = den > 0 ? Math.max(0.2, Math.min(2.5, num / den)) : 1.0;
+  const predicted = [nVals[0]];
+  for (let i = 0; i < n - 1; i++) {
+    const c = Number(catches[i] || 0);
+    predicted.push(Math.max(0, lambda1 * Math.max(0, predicted[i] - c)));
+  }
+  const meanY = nVals.reduce((a, b) => a + b, 0) / n;
+  const ssTot = Math.max(1e-9, nVals.reduce((acc, v) => acc + (v - meanY) ** 2, 0));
+  const ssRes = nVals.reduce((acc, v, i) => acc + (v - predicted[i]) ** 2, 0);
+  const r2 = Math.max(0.0, 1.0 - ssRes / ssTot);
+  return { isFitted: true, lambda1, r2, predicted };
+}
+
+/**
+ * AIC/R2 comparison across Schaefer, Delay-Difference, and Generalized Leslie models.
+ */
+export function compareMacroModels(time, numbers, catches) {
+  const schaefer = fitSchaefer(time, numbers, catches);
+  const delayDifference = fitDelayDifference(time, numbers, catches);
+  const leslie = fitGeneralizedLeslieModel(time, numbers, catches);
+  const scores = [
+    { name: 'schaefer', r2: schaefer.r2 || 0 },
+    { name: 'delay_difference', r2: delayDifference.r2 || 0 },
+    { name: 'leslie', r2: leslie.r2 || 0 },
+  ];
+  scores.sort((a, b) => b.r2 - a.r2);
+  return { schaefer, delayDifference, leslie, bestModel: scores[0].name };
+}
+
+/**
+ * Compute Mohn's rho retrospective bias statistic.
+ */
+export function mohnRho(peelEndpoints, fullValues) {
+  if (!peelEndpoints.length || peelEndpoints.length !== fullValues.length) return 0.0;
+  let sum = 0.0;
+  let cnt = 0;
+  for (let i = 0; i < peelEndpoints.length; i++) {
+    if (fullValues[i] !== 0) {
+      sum += (peelEndpoints[i] - fullValues[i]) / fullValues[i];
+      cnt += 1;
+    }
+  }
+  return cnt > 0 ? sum / cnt : 0.0;
+}
+
+/**
+ * Perform retrospective peels on the Schaefer model and compute Mohn's rho.
+ */
+export function retrospectiveAnalysis(time, numbers, catches, nPeels = 4) {
+  const full = fitSchaefer(time, numbers, catches);
+  const peels = [];
+  const fullRefs = [];
+  for (let p = 1; p <= nPeels; p++) {
+    if (numbers.length - p < 4) break;
+    const sub = fitSchaefer(time.slice(0, -p), numbers.slice(0, -p), catches.slice(0, -p));
+    peels.push(sub.predicted[sub.predicted.length - 1]);
+    fullRefs.push(full.predicted[numbers.length - p - 1]);
+  }
+  return { mohnRho: mohnRho(peels, fullRefs), peelEndpoints: peels };
+}
+
+/**
+ * Compute binned empirical maturity ogive.
+ */
+export function computeEmpiricalOgive(agents, sex = 'male', binWidth = 5.0) {
+  const sub = (agents || []).filter((a) => a.alive && a.sex === sex);
+  if (!sub.length) return { sizes: [], proportions: [], counts: [] };
+  const bins = new Map();
+  for (const a of sub) {
+    const mid = Math.floor(a.cw / binWidth) * binWidth + binWidth * 0.5;
+    if (!bins.has(mid)) bins.set(mid, { tot: 0, mat: 0 });
+    const rec = bins.get(mid);
+    rec.tot += 1;
+    if (a.mature) rec.mat += 1;
+  }
+  const keys = Array.from(bins.keys()).sort((a, b) => a - b);
+  return {
+    sizes: keys,
+    proportions: keys.map((k) => bins.get(k).mat / bins.get(k).tot),
+    counts: keys.map((k) => bins.get(k).tot),
+  };
+}
+
+/**
+ * Gaussian KDE density over a carapace width grid.
+ */
+export function kdeDensity(values, from = 5, to = 160, n = 100, bandwidth = 4.0) {
+  const x = Array.from({ length: n }, (_, i) => from + (i / (n - 1)) * (to - from));
+  if (!values || !values.length) return { x, y: x.map(() => 0) };
+  const bw = Math.max(0.5, bandwidth);
+  const invNorm = 1.0 / (values.length * bw * Math.sqrt(2.0 * Math.PI));
+  const y = x.map((gx) => {
+    let s = 0;
+    for (let j = 0; j < values.length; j++) {
+      const d = (gx - values[j]) / bw;
+      s += Math.exp(-0.5 * d * d);
+    }
+    return s * invNorm;
+  });
+  return { x, y };
+}
+
+/**
+ * Evaluate multi-attribute calibration criteria matching TethysBio::evaluate_population_criteria.
+ */
+export function evaluatePopulationCriteria(history = [], agents = [], params = {}) {
+  const k = params.environment?.benthic_carrying_capacity_density ?? 6000;
+  const pops = history.map((h) => h.total || 0);
+  const minPop = pops.length ? Math.min(...pops) : 0;
+  const maxPop = pops.length ? Math.max(...pops) : 0;
+  const persistence = minPop >= 5;
+  const noExplosion = maxPop <= k * 5.0;
+
+  let sizeDrift = 0.0;
+  if (history.length >= 4) {
+    const tail = history.slice(-Math.min(10, history.length));
+    const c0 = Math.max(1.0, tail[0].mean_cw || 1.0);
+    const c1 = tail[tail.length - 1].mean_cw || c0;
+    sizeDrift = (c1 - c0) / c0;
+  }
+
+  let maturityRmse = 0.0;
+  const emp = computeEmpiricalOgive(agents, 'male', 5.0);
+  if (emp.sizes.length > 0) {
+    const l50 = params.maturity?.cw50 ?? 91.8;
+    const beta = params.maturity?.beta ?? 6.9957;
+    let se = 0;
+    for (let i = 0; i < emp.sizes.length; i++) {
+      const sz = emp.sizes[i];
+      const pred = sz < 35.0 ? 0.0 : 1.0 / (1.0 + Math.exp(-(sz - l50) / beta));
+      se += (emp.proportions[i] - pred) ** 2;
+    }
+    maturityRmse = Math.sqrt(se / emp.sizes.length);
+  }
+
+  let growthRmse = 0.0;
+  const living = (agents || []).filter((a) => a.alive);
+  if (living.length > 0) {
+    const meanCw = living.reduce((acc, a) => acc + a.cw, 0) / living.length;
+    growthRmse = Math.abs(meanCw - 65.0) / 65.0;
+  }
+
+  return {
+    persistence,
+    noExplosion,
+    sizeDrift,
+    sizeStabilityOk: Math.abs(sizeDrift) <= 0.25,
+    maturityRmse,
+    growthRmse,
+  };
+}
+
+/**
+ * Export scenario configuration to a TethysBio-compatible TOML string.
+ */
+export function exportScenarioToml(config = {}) {
+  const env = config.environment || {};
+  const fish = config.fishery || {};
+  return [
+    '[simulation]',
+    `n_agents = ${config.n_agents ?? 400}`,
+    `grid_size = ${config.grid_size ?? 50}`,
+    '',
+    '[environment]',
+    `temp_offset = ${(env.temp_offset ?? 0).toFixed(4)}`,
+    `temp_multiplier = ${(env.temp_multiplier ?? 1).toFixed(4)}`,
+    `benthic_carrying_capacity_density = ${(env.benthic_carrying_capacity_density ?? 6000).toFixed(2)}`,
+    '',
+    '[fishery]',
+    `fishing_probability_daily = ${(fish.fishing_probability_daily ?? 0).toFixed(4)}`,
+    `legal_size_male = ${(fish.legal_size_male ?? 95).toFixed(2)}`,
+    `fishing_season_start = ${(fish.fishing_season_start ?? 90).toFixed(1)}`,
+    `fishing_season_end = ${(fish.fishing_season_end ?? 150).toFixed(1)}`,
+  ].join('\n');
 }
 

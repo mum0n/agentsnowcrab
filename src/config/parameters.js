@@ -62,7 +62,7 @@ export const DEFAULTS = {
     habitat_multiplier: 1.0,
   },
   fishery: {
-    fishing_probability_daily: 0.002,
+    fishing_probability_daily: 0.0,
     legal_size_male: 95.0,
     legal_size_mm: 95.0,
     fishing_season_start: 90,
@@ -102,8 +102,7 @@ export const DEFAULTS = {
     baseline_rate_by_stage: [
       0.35, 0.35, 0.35, 0.35,
       0.15, 0.15, 0.15, 0.15,
-      0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08,
-      0.06,
+      0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.06,
     ],
     rate_predation: 0.05,
     rate_soft_shell: 0.12,

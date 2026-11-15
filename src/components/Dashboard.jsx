@@ -6,6 +6,8 @@ import {
   fitStockRecruitment,
   fitSchaefer,
   fitDelayDifference,
+  fitGeneralizedLeslieModel,
+  evaluatePopulationCriteria,
   bottomTemperature,
   habitatSuitability,
   seasonalBottomTemperatureCycle,
@@ -117,7 +119,7 @@ export default function Dashboard() {
       x: Array.from({ length: nr }, (_, i) => (i / (nr - 1)) * gsz),
       y: Array.from({ length: nr }, (_, j) => (j / (nr - 1)) * gsz),
     };
-  }, [model, backgroundLayer, gsz]);
+  }, [model, backgroundLayer, gsz, day]);
 
   // Seasonal Bottom Temperature Climatology calculation (Tab 1 Right Panel)
   const tempCycle = useMemo(() => {
@@ -128,9 +130,9 @@ export default function Dashboard() {
   }, [aoi, params]);
 
   // Environmental driver distributions
-  const gridDepths = useMemo(() => (model?.env?.depth ? Array.from(model.env.depth) : []), [model]);
-  const gridTemps = useMemo(() => (model?.env?.temperature ? Array.from(model.env.temperature) : []), [model]);
-  const gridHsis = useMemo(() => (model?.env?.hsi ? Array.from(model.env.hsi) : []), [model]);
+  const gridDepths = useMemo(() => (model?.env?.depth ? Array.from(model.env.depth) : []), [model, day]);
+  const gridTemps = useMemo(() => (model?.env?.temperature ? Array.from(model.env.temperature) : []), [model, day]);
+  const gridHsis = useMemo(() => (model?.env?.hsi ? Array.from(model.env.hsi) : []), [model, day]);
 
   // Sizes for ogives & densities
   const sizes = useMemo(() => Array.from({ length: 140 }, (_, i) => 20 + i), []);
@@ -1078,83 +1080,73 @@ export default function Dashboard() {
                     data={(() => {
                       const alive = agents.filter((a) => a.alive);
                       const labels = STAGE_LABELS;
-                      const maleCounts = labels.map((_, idx) => {
-                        let count = 0;
-                        for (const a of alive) {
-                          const st = Math.min(19, Math.max(4, a.stage || 4));
-                          if (st === idx + 4) {
-                            const isImmature = idx < 9;
-                            if (isImmature) {
-                              if (Math.random() < 0.5) count += 1;
-                            } else if (a.sex === 'male') {
-                              count += 1;
-                            }
-                          }
+                      const maleCounts = new Array(labels.length).fill(0);
+                      const femaleCounts = new Array(labels.length).fill(0);
+                      for (const a of alive) {
+                        const st = Math.min(labels.length - 1, Math.max(0, Math.round(a.stage || 4)));
+                        if (a.sex === 'female') {
+                          femaleCounts[st] += 1;
+                        } else {
+                          maleCounts[st] += 1;
                         }
-                        return count;
-                      });
-                      const femaleCounts = labels.map((_, idx) => {
-                        let count = 0;
-                        for (const a of alive) {
-                          const st = Math.min(19, Math.max(4, a.stage || 4));
-                          if (st === idx + 4) {
-                            const isImmature = idx < 9;
-                            if (isImmature) {
-                              if (Math.random() < 0.5) count += 1;
-                            } else if (a.sex === 'female') {
-                              count += 1;
-                            }
-                          }
-                        }
-                        return count;
-                      });
+                      }
                       const xpos = labels.map((_, i) => i);
                       const offset = 0.2;
-                      const xm = xpos.map(i => i - offset);
-                      const xf = xpos.map(i => i + offset);
-                      // Build proper lollipop stems: each stem is [x, x] for line, [0, count] for y
-                      // Use separate traces for male/female stems with connected lines+markers
+                      const xm = xpos.map((i) => i - offset);
+                      const xf = xpos.map((i) => i + offset);
                       const maleStemX = [];
                       const maleStemY = [];
                       const femaleStemX = [];
                       const femaleStemY = [];
                       for (let i = 0; i < labels.length; i++) {
-                        // Male stem
                         maleStemX.push(xm[i], xm[i], null);
                         maleStemY.push(0, maleCounts[i], null);
-                        // Female stem
                         femaleStemX.push(xf[i], xf[i], null);
                         femaleStemY.push(0, femaleCounts[i], null);
                       }
                       return [
-                        // Male stems as connected lines+markers
                         {
                           x: maleStemX,
                           y: maleStemY,
                           type: 'scatter',
-                          mode: 'lines+markers',
+                          mode: 'lines',
+                          connectgaps: false,
                           line: { color: '#0284c7', width: 2 },
+                          showlegend: false,
+                          hoverinfo: 'skip',
+                        },
+                        {
+                          x: xm,
+                          y: maleCounts,
+                          type: 'scatter',
+                          mode: 'markers',
                           marker: { color: '#0284c7', size: 9, symbol: 'circle' },
                           name: 'Males',
-                          showlegend: true,
                         },
-                        // Female stems as connected lines+markers
                         {
                           x: femaleStemX,
                           y: femaleStemY,
                           type: 'scatter',
-                          mode: 'lines+markers',
+                          mode: 'lines',
+                          connectgaps: false,
                           line: { color: '#e11d48', width: 2 },
+                          showlegend: false,
+                          hoverinfo: 'skip',
+                        },
+                        {
+                          x: xf,
+                          y: femaleCounts,
+                          type: 'scatter',
+                          mode: 'markers',
                           marker: { color: '#e11d48', size: 9, symbol: 'circle' },
                           name: 'Females',
-                          showlegend: true,
                         },
                       ];
                     })()}
                     layout={lightPlotLayout({
                       autosize: true,
                       xaxis: { tickvals: Array.from({ length: STAGE_LABELS.length }, (_, i) => i), ticktext: STAGE_LABELS, title: 'Developmental Stage', showgrid: true, gridcolor: '#f1f5f9', tickangle: -45 },
-                      yaxis: { title: 'Organisms', showgrid: true, gridcolor: '#f1f5f9' },
+                      yaxis: { title: 'Organisms', rangemode: 'tozero', showgrid: true, gridcolor: '#f1f5f9' },
                       margin: { l: 45, r: 15, t: 15, b: 80 },
                     })}
                     useResizeHandler
@@ -1389,7 +1381,7 @@ export default function Dashboard() {
                           y: srFits.rkCurve,
                           mode: 'lines',
                           type: 'scatter',
-                          name: `Ricker (R²={srFits.fits.ricker.r2.toFixed(3)})`,
+                          name: `Ricker (R²=${srFits.fits.ricker.r2.toFixed(3)})`,
                           line: { color: '#e11d48', width: 2.2 },
                         },
                         {
@@ -1397,7 +1389,7 @@ export default function Dashboard() {
                           y: srFits.bhCurve,
                           mode: 'lines',
                           type: 'scatter',
-                          name: `Beverton-Holt (R²={srFits.fits.bevertonHolt.r2.toFixed(3)})`,
+                          name: `Beverton-Holt (R²=${srFits.fits.bevertonHolt.r2.toFixed(3)})`,
                           line: { color: '#0284c7', width: 2.2, dash: 'dash' },
                         },
                       ]}
@@ -1443,7 +1435,7 @@ export default function Dashboard() {
                           y: macroFits.schaefer.predicted,
                           mode: 'lines',
                           type: 'scatter',
-                          name: `Schaefer (r={macroFits.schaefer.r.toFixed(3)}, R²={macroFits.schaefer.r2.toFixed(3)})`,
+                          name: `Schaefer (r=${macroFits.schaefer.r.toFixed(3)}, R²=${macroFits.schaefer.r2.toFixed(3)})`,
                           line: { color: '#0284c7', width: 2.2, dash: 'dash' },
                         },
                         {
@@ -1451,7 +1443,7 @@ export default function Dashboard() {
                           y: macroFits.delayDiff.predicted,
                           mode: 'lines',
                           type: 'scatter',
-                          name: `Delay-Diff (s={macroFits.delayDiff.s.toFixed(3)}, R²={macroFits.delayDiff.r2.toFixed(3)})`,
+                          name: `Delay-Diff (s=${macroFits.delayDiff.s.toFixed(3)}, R²=${macroFits.delayDiff.r2.toFixed(3)})`,
                           line: { color: '#e11d48', width: 2.2, dash: 'dot' },
                         },
                       ]}
@@ -1500,21 +1492,34 @@ export default function Dashboard() {
                           {annual.length && annual[annual.length - 1].biomass_kg < 500000 ? 'PASS' : 'FAIL'}
                         </td>
                       </tr>
-                      <tr>
-                        <td style={cellStyle}>3. Size Structure Stability</td>
-                        <td style={cellStyle}>ΔCW</td>
-                        <td style={cellStyle}>—</td>
-                      </tr>
-                      <tr>
-                        <td style={cellStyle}>4. Maturity Ogive Fidelity</td>
-                        <td style={cellStyle}>RMSE</td>
-                        <td style={cellStyle}>—</td>
-                      </tr>
-                      <tr>
-                        <td style={cellStyle}>5. Growth Schedule Fidelity</td>
-                        <td style={cellStyle}>RMSE (mm)</td>
-                        <td style={cellStyle}>—</td>
-                      </tr>
+                      {(() => {
+                        const crit = evaluatePopulationCriteria(history, agents, params);
+                        return (
+                          <>
+                            <tr>
+                              <td style={cellStyle}>3. Size Structure Stability</td>
+                              <td style={cellStyle}>{(crit.sizeDrift * 100).toFixed(1)}%</td>
+                              <td style={{ ...cellStyle, color: crit.sizeStabilityOk ? '#16a34a' : '#dc2626' }}>
+                                {crit.sizeStabilityOk ? 'PASS' : 'WARN'}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style={cellStyle}>4. Maturity Ogive Fidelity</td>
+                              <td style={cellStyle}>{crit.maturityRmse.toFixed(3)}</td>
+                              <td style={{ ...cellStyle, color: crit.maturityRmse <= 0.25 ? '#16a34a' : '#f59e0b' }}>
+                                {crit.maturityRmse <= 0.25 ? 'PASS' : 'CHECK'}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td style={cellStyle}>5. Growth Schedule Fidelity</td>
+                              <td style={cellStyle}>{(crit.growthRmse * 100).toFixed(1)}%</td>
+                              <td style={{ ...cellStyle, color: crit.growthRmse <= 0.35 ? '#16a34a' : '#f59e0b' }}>
+                                {crit.growthRmse <= 0.35 ? 'PASS' : 'CHECK'}
+                              </td>
+                            </tr>
+                          </>
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>

@@ -14,14 +14,39 @@ React/Electron port of TethysBio (snow crab IBM). Runs in any supported browser 
 
 ## Run
 
-Requires Node.js (not present in this environment — install first).
+Requires Node.js (v18+ recommended).
 
 ```powershell
 cd agentsnowcrab
 npm install
-npm run dev          # browser dev server at http://localhost:5173
-npm run electron     # desktop app
-npm run build        # production build to dist/
+npm run dev            # browser dev server at http://localhost:5173
+npm run electron:dev   # desktop Electron window with live Vite server
+```
+
+To open the prebuilt standalone HTML dashboard directly without running a server:
+
+```powershell
+Start-Process index.html
+```
+
+## Rebuilding
+
+Whenever source files under `src/` are modified, rebuild both `dist/` and the self-contained `index.html` bundle:
+
+```powershell
+cd agentsnowcrab
+npm install            # required once or after dependency changes
+npm run build          # runs `vite build && node scripts/make_standalone.mjs`
+```
+
+`npm run build` compiles the Vite bundle into `dist/` and inlines the generated JS and CSS into `dist/index.html` and the root `index.html` so it can be opened directly via `file://` without CORS issues.
+
+To run the unit test suite or build the packaged Electron desktop installer:
+
+```powershell
+npm test               # runs Vitest (`vitest run`)
+npm run electron:build # builds Vite bundle and Electron desktop package
 ```
 
 Data store: internal only. Use "Export run (JSON)" / file import to persist runs locally.
+
