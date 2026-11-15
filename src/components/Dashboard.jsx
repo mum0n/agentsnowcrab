@@ -129,6 +129,11 @@ export default function Dashboard() {
     return seasonalBottomTemperatureCycle(aoi.longitude, aoi.latitude, depth, toff, tmult, 80.0);
   }, [aoi, params]);
 
+  // Environmental driver distributions
+  const gridDepths = useMemo(() => (model?.env?.depth ? Array.from(model.env.depth) : []), [model, day]);
+  const gridTemps = useMemo(() => (model?.env?.temperature ? Array.from(model.env.temperature) : []), [model, day]);
+  const gridHsis = useMemo(() => (model?.env?.hsi ? Array.from(model.env.hsi) : []), [model, day]);
+
   // Fixed color-scale bounds for Tab 2 Spatial Habitat map
   const spatialColorBounds = useMemo(() => {
     if (backgroundLayer === 'hsi' || backgroundLayer === 'habitat_quality') {
@@ -150,11 +155,6 @@ export default function Dashboard() {
     }
     return { zmin: 0.0, zmax: 400.0 };
   }, [backgroundLayer, tempCycle, gridDepths]);
-
-  // Environmental driver distributions
-  const gridDepths = useMemo(() => (model?.env?.depth ? Array.from(model.env.depth) : []), [model, day]);
-  const gridTemps = useMemo(() => (model?.env?.temperature ? Array.from(model.env.temperature) : []), [model, day]);
-  const gridHsis = useMemo(() => (model?.env?.hsi ? Array.from(model.env.hsi) : []), [model, day]);
 
   // Sizes for ogives & densities
   const sizes = useMemo(() => Array.from({ length: 140 }, (_, i) => 20 + i), []);
