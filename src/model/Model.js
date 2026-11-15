@@ -58,7 +58,7 @@ export const scotianShelfDepth = (lon, lat) => {
       return catmullRom(g.z[off + ix[0]], g.z[off + ix[1]], g.z[off + ix[2]], g.z[off + ix[3]], du);
     };
     const zInterp = catmullRom(rowVal(j1 - 1), rowVal(j1), rowVal(j1 + 1), rowVal(j1 + 2), dv);
-    return Math.max(10.0, zInterp);
+    return zInterp;
   }
   return 135;
 };
@@ -197,6 +197,25 @@ export class Model {
     };
   }
 
+  sampleHabitablePosition() {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const x = Math.floor(Math.random() * this.gridSize);
+      const y = Math.floor(Math.random() * this.gridSize);
+      const e = this.getEnvAt(x, y);
+      if (e.depth > 0 && e.hsi > 0) return { x, y };
+    }
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const x = Math.floor(Math.random() * this.gridSize);
+      const y = Math.floor(Math.random() * this.gridSize);
+      const e = this.getEnvAt(x, y);
+      if (e.depth > 0) return { x, y };
+    }
+    return {
+      x: Math.floor(Math.random() * this.gridSize),
+      y: Math.floor(Math.random() * this.gridSize),
+    };
+  }
+
   initialize(nAgents = 120, options = {}) {
     this.agents = [];
     this.day = 0;
@@ -226,8 +245,7 @@ export class Model {
       const sex = stageId <= 8 ? (Math.random() < 0.5 ? 'male' : 'female') : (stageId <= 14 ? 'male' : 'female');
 
       for (let i = 0; i < count; i++) {
-        const x = Math.floor(Math.random() * this.gridSize);
-        const y = Math.floor(Math.random() * this.gridSize);
+        const { x, y } = this.sampleHabitablePosition();
         const agent = createAgent(created, x, y, this.seed + created, stageId, sex);
         this.agents.push(agent);
         created += 1;
@@ -264,8 +282,7 @@ export class Model {
     const recruits = Math.min(5, Math.floor(settlement * 0.01));
     for (let r = 0; r < recruits; r++) {
       if (this.agents.length < K * 1.5) {
-        const x = Math.floor(Math.random() * this.gridSize);
-        const y = Math.floor(Math.random() * this.gridSize);
+        const { x, y } = this.sampleHabitablePosition();
         const newId = this.agents.length + this.births;
         this.agents.push(createAgent(newId, x, y, this.seed + newId, 4));
         this.births += 1;
@@ -316,14 +333,16 @@ export class Model {
           { dx: 0, dy: stepSize },
           { dx: 0, dy: -stepSize },
         ];
-        let bestHsi = -1;
+        let bestScore = -Infinity;
         let chosen = deltas[0];
         for (const d of deltas) {
           const nx = Math.max(0, Math.min(gsz - 1, a.x + d.dx));
           const ny = Math.max(0, Math.min(gsz - 1, a.y + d.dy));
-          const h = this.getEnvAt(nx, ny).hsi + (Math.random() - 0.5) * 0.15;
-          if (h > bestHsi) {
-            bestHsi = h;
+          const envCand = this.getEnvAt(nx, ny);
+          if (envCand.depth <= 0) continue;
+          const h = envCand.hsi + (Math.random() - 0.5) * 0.15;
+          if (h > bestScore) {
+            bestScore = h;
             chosen = d;
           }
         }

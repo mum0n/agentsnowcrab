@@ -92,7 +92,8 @@ export default function Dashboard() {
     for (let j = 0; j < nr; j++) {
       const row = [];
       for (let i = 0; i < nr; i++) {
-        row.push(raw[j * nr + i]);
+        const v = raw[j * nr + i];
+        row.push(backgroundLayer === 'depth' && v <= 0 ? null : v);
       }
       mat.push(row);
     }
@@ -130,9 +131,10 @@ export default function Dashboard() {
       }
       return { zmin: -1.0, zmax: 8.0 };
     }
-    if (gridDepths.length > 0) {
-      const dMin = gridDepths.reduce((a, b) => (b < a ? b : a), Infinity);
-      const dMax = gridDepths.reduce((a, b) => (b > a ? b : a), -Infinity);
+    const oceanDepths = gridDepths.filter((d) => d > 0);
+    if (oceanDepths.length > 0) {
+      const dMin = oceanDepths.reduce((a, b) => (b < a ? b : a), Infinity);
+      const dMax = oceanDepths.reduce((a, b) => (b > a ? b : a), -Infinity);
       return { zmin: dMin, zmax: dMax > dMin ? dMax : dMin + 10.0 };
     }
     return { zmin: 0.0, zmax: 400.0 };
@@ -432,7 +434,7 @@ export default function Dashboard() {
                     autosize: true,
                     xaxis: {
                       title: 'Longitude (°W)',
-                      range: [-66.5, -57.5],
+                      range: [-66.5, -56.5],
                       showgrid: true,
                       gridcolor: '#e2e8f0',
                     },
@@ -623,6 +625,7 @@ export default function Dashboard() {
                                   : backgroundLayer === 'depth'
                                   ? 'Viridis'
                                   : 'Viridis',
+                              reversescale: backgroundLayer === 'depth',
                               showscale: true,
                               colorbar: {
                                 title:
