@@ -75,35 +75,17 @@ export default function Dashboard() {
   const sublegalMatMales = agents.filter((a) => a.sex === 'male' && a.mature && a.cw < legalThresh);
   const legalMatMales = agents.filter((a) => a.sex === 'male' && a.mature && a.cw >= legalThresh);
 
-  // Background Raster Matrix for Spatial Habitat Map
-  // Use high-resolution Scotian Shelf GEO data (180x131) for depth when available
+  // Background Raster Matrix for Spatial Habitat Map (AOI environmental grid)
   const spatialMatrix = useMemo(() => {
     if (!model?.env) return null;
 
-    if (backgroundLayer === 'depth' && SCOTIAN_SHELF_GEO?.z) {
-      // Use high-resolution Scotian Shelf GEO bathymetry (180x131)
-      const geo = SCOTIAN_SHELF_GEO;
-      const mat = [];
-      for (let j = 0; j < geo.ny; j++) {
-        const row = [];
-        for (let i = 0; i < geo.nx; i++) {
-          row.push(geo.z[j * geo.nx + i]);
-        }
-        mat.push(row);
-      }
-      return {
-        mat,
-        x: Array.from({ length: geo.nx }, (_, i) => (i / (geo.nx - 1)) * gsz),
-        y: Array.from({ length: geo.ny }, (_, j) => (j / (geo.ny - 1)) * gsz),
-      };
-    }
-
-    // For temperature and HSI, use model's synthetic grid
     const nr = model.env.resolution || 50;
     const raw =
-      backgroundLayer === 'temperature'
-        ? model.env.temperature
-        : model.env.hsi;
+      backgroundLayer === 'depth'
+        ? model.env.depth
+        : backgroundLayer === 'temperature'
+          ? model.env.temperature
+          : model.env.hsi;
     if (!raw) return null;
 
     const mat = [];
@@ -773,6 +755,20 @@ export default function Dashboard() {
                   ))}
                 </div>
 
+                {/* Background Layer Selector (above Exclusion / Clear MPA bar) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '4px 8px', background: '#f8fafc', borderRadius: 4, border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#334155' }}>Background Layer:</span>
+                  <select
+                    value={backgroundLayer}
+                    onChange={(e) => setBackgroundLayer(e.target.value)}
+                    style={{ padding: '2px 6px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11, background: '#ffffff', color: '#0f172a' }}
+                  >
+                    <option value="depth">Seabed Depth (m)</option>
+                    <option value="temperature">Bottom Temperature</option>
+                    <option value="habitat_quality">Habitat Quality (HSI)</option>
+                  </select>
+                </div>
+
                 {/* Below Plot MPA Bar */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '4px 8px', background: '#f8fafc', borderRadius: 4, border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: 11 }}>
@@ -938,18 +934,6 @@ export default function Dashboard() {
                           if (Number.isFinite(v) && v >= 0) updateParam('ibm.max_move_m_per_year', v);
                         }}
                       />
-                    </div>
-                    <div className="ctrl-row">
-                      <span style={{ fontWeight: 600 }}>Background Layer:</span>
-                      <select
-                        value={backgroundLayer}
-                        onChange={(e) => setBackgroundLayer(e.target.value)}
-                        style={{ padding: '2px 6px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11, background: '#ffffff', color: '#0f172a' }}
-                      >
-                        <option value="depth">Seabed Depth (m)</option>
-                        <option value="temperature">Bottom Temperature</option>
-                        <option value="habitat_quality">Habitat Quality (HSI)</option>
-                      </select>
                     </div>
                   </div>
 
