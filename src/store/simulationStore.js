@@ -114,7 +114,7 @@ export const useStore = create((set, get) => ({
         model.buildEnvironmentalGrid();
         model.updateEnvironmentalFields((model.day % 365) + 1);
       }
-      if (path.startsWith('environment.temp_pref_')) {
+      if (path.startsWith('environment.temp_pref_') || path === 'environment.depth_opt' || path === 'environment.depth_sigma') {
         model.buildEnvironmentalGrid();
         model.updateEnvironmentalFields((model.day % 365) + 1);
       }

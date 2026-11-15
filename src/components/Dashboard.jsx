@@ -925,6 +925,34 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="ctrl-row">
+                      <span>Depth Opt (m):</span>
+                      <input
+                        type="number"
+                        step="10"
+                        min="25"
+                        className="ctrl-input"
+                        value={params.environment?.depth_opt ?? 200.0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v) && v >= 25) updateParam('environment.depth_opt', v);
+                        }}
+                      />
+                    </div>
+                    <div className="ctrl-row">
+                      <span>Depth Sigma (m):</span>
+                      <input
+                        type="number"
+                        step="10"
+                        min="10"
+                        className="ctrl-input"
+                        value={params.environment?.depth_sigma ?? 100.0}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v) && v >= 10) updateParam('environment.depth_sigma', v);
+                        }}
+                      />
+                    </div>
+                    <div className="ctrl-row">
                       <span>Max Movement (m/yr):</span>
                       <input
                         type="number"

@@ -135,19 +135,21 @@ export function habitatSuitability(temp, depth, env = {}) {
     if (temp < tempMin) {
       sT = 0.5 * (1.0 + Math.cos((Math.PI * (tempMin - temp)) / 2.0));
     } else {
-      sT = 1.0 / (1.0 + Math.exp(1.2 * (temp - tempOpt)));
+      const tempSteepness = Number.isFinite(Number(env?.temp_steepness)) ? Number(env.temp_steepness) : 1.0;
+      sT = 1.0 / (1.0 + Math.exp(tempSteepness * (temp - tempOpt)));
       if (temp > tempOpt) {
         sT *= 0.5 * (1.0 + Math.cos((Math.PI * (temp - tempOpt)) / (tempMax - tempOpt)));
       }
     }
   }
+  const depthOpt = Number.isFinite(Number(env?.depth_opt)) ? Number(env.depth_opt) : 200.0;
+  const depthSigma = Math.max(1.0, Number.isFinite(Number(env?.depth_sigma)) ? Number(env.depth_sigma) : 100.0);
   let sZ = 0.0;
-  if (depth > 20.0 && depth < 400.0) {
-    sZ = Math.exp(-0.5 * (((depth - 140.0) / 90.0) ** 2));
-    if (depth < 50.0) {
-      sZ *= 0.5 * (1.0 - Math.cos((Math.PI * (depth - 20.0)) / 30.0));
-    } else if (depth > 300.0) {
-      sZ *= 0.5 * (1.0 + Math.cos((Math.PI * (depth - 300.0)) / 100.0));
+  if (depth > 20.0) {
+    sZ = Math.exp(-0.5 * (((depth - depthOpt) / depthSigma) ** 2));
+    const taperWidth = Math.min(40.0, Math.max(1.0, depthOpt - 20.0));
+    if (depth < 20.0 + taperWidth) {
+      sZ *= 0.5 * (1.0 - Math.cos((Math.PI * (depth - 20.0)) / taperWidth));
     }
   }
   return Math.max(0.0, Math.min(1.0, sT * sZ));

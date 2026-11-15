@@ -10,6 +10,8 @@
 import {
   createAgent,
   growthIncrement,
+  moltConditionFactor,
+  moltProbability,
   maturityProbability,
   mortalityHazards,
   calculateEnergyChange,
@@ -318,48 +320,121 @@ export class Model {
         : (Number(this.foodAvailability) || 1.0) * 5.0;
 
       // Bioenergetics & degree-day accumulation
+      const orgParams = this.params.organism || {};
       a.degree_days = (a.degree_days || 0) + Math.max(0.0, cellT + 1.5) * dt;
-      if (toggles.use_energetics !== false) {
-        const dE = calculateEnergyChange(a, cellT, cellFood, envParams);
+      if (toggles.use_energetics !== false && toggles.bioenergetics !== false) {
+        const dE = calculateEnergyChange(a, cellT, cellFood, envParams, orgParams);
         a.energy_reserve = (a.energy_reserve ?? 10.0) + dE * dt;
       }
 
-      // Directed movement taxis toward cold, food-rich / high HSI cells
-      if (toggles.directed_taxis !== false && toggles.use_movement !== false) {
+      // Movement and habitat taxis aligned with TethysBio
+      // (lethargy gate, 9-point Moore stencil, HSI * Gaussian temp * hyperbolic food, softmax)
+      const useEnergetics = toggles.use_energetics !== false && toggles.bioenergetics !== false;
+      const lethargic =
+        useEnergetics &&
+        a.energy_reserve <= 0.0 &&
+        Math.random() < (orgParams.energy_deficit_removal_probability ?? 0.75);
+
+      if (toggles.use_movement !== false && stepSize > 0.0 && !lethargic) {
         const deltas = [
           { dx: 0, dy: 0 },
           { dx: stepSize, dy: 0 },
           { dx: -stepSize, dy: 0 },
           { dx: 0, dy: stepSize },
           { dx: 0, dy: -stepSize },
+          { dx: stepSize, dy: stepSize },
+          { dx: stepSize, dy: -stepSize },
+          { dx: -stepSize, dy: stepSize },
+          { dx: -stepSize, dy: -stepSize },
         ];
-        let bestScore = -Infinity;
-        let chosen = deltas[0];
-        for (const d of deltas) {
-          const nx = Math.max(0, Math.min(gsz - 1, a.x + d.dx));
-          const ny = Math.max(0, Math.min(gsz - 1, a.y + d.dy));
-          const envCand = this.getEnvAt(nx, ny);
-          if (envCand.depth <= 0) continue;
-          const h = envCand.hsi + (Math.random() - 0.5) * 0.15;
-          if (h > bestScore) {
-            bestScore = h;
-            chosen = d;
+
+        if (toggles.directed_taxis === false) {
+          const valid = [];
+          const aquatic = [];
+          for (const d of deltas) {
+            const nx = Math.max(0, Math.min(gsz - 1, a.x + d.dx));
+            const ny = Math.max(0, Math.min(gsz - 1, a.y + d.dy));
+            const envCand = this.getEnvAt(nx, ny);
+            if (envCand.depth > 0) aquatic.push(d);
+            if (envCand.depth >= 20.0 && envCand.hsi > 0.0) valid.push(d);
           }
+          const pool = valid.length > 0 ? valid : aquatic;
+          if (pool.length > 0) {
+            const chosen = pool[Math.floor(Math.random() * pool.length)];
+            a.x = Math.max(0, Math.min(gsz - 1, a.x + chosen.dx));
+            a.y = Math.max(0, Math.min(gsz - 1, a.y + chosen.dy));
+          }
+        } else {
+          const tOptMove = envParams.habitat_temperature_optimum ?? 2.5;
+          const tSigMove = Math.max(0.1, envParams.habitat_temperature_sigma ?? 1.5);
+          const tempMaxMove = envParams.temp_pref_max ?? 10.0;
+          const foodWeight = envParams.habitat_food_weight ?? 0.5;
+          const halfSat = Math.max(1.0e-6, envParams.half_saturation_food ?? 2.0);
+          const tau = Math.max(0.01, envParams.movement_softmax_temperature ?? 0.5);
+
+          const utilities = [];
+          const aquaticCandidates = [];
+          let maxU = -Infinity;
+          for (const d of deltas) {
+            const nx = Math.max(0, Math.min(gsz - 1, a.x + d.dx));
+            const ny = Math.max(0, Math.min(gsz - 1, a.y + d.dy));
+            const envCand = this.getEnvAt(nx, ny);
+            if (envCand.depth <= 0) {
+              utilities.push(0.0);
+              continue;
+            }
+            aquaticCandidates.push(d);
+            let u = 0.0;
+            if (envCand.depth >= 20.0 && envCand.hsi > 0.0 && envCand.temperature < tempMaxMove) {
+              const sTemp = Math.exp(-((envCand.temperature - tOptMove) ** 2) / (2.0 * tSigMove * tSigMove));
+              const candFood = Array.isArray(this.foodAvailability)
+                ? (this.foodAvailability[Math.min(this.foodAvailability.length - 1, Math.max(0, Math.round(ny) * gsz + Math.round(nx)))] ?? 5.0)
+                : (Number(this.foodAvailability) || 1.0) * 5.0;
+              const sFood = candFood / (candFood + halfSat);
+              u = envCand.hsi * sTemp * (1.0 + foodWeight * sFood);
+            }
+            if (u > maxU) maxU = u;
+            utilities.push(u);
+          }
+
+          let chosen = deltas[0];
+          const weights = utilities.map((u) => (u > 0.0 ? Math.exp((u - maxU) / tau) : 0.0));
+          const wSum = weights.reduce((acc, w) => acc + w, 0.0);
+          if (wSum > 0.0) {
+            let r = Math.random() * wSum;
+            for (let k = 0; k < deltas.length; k++) {
+              r -= weights[k];
+              if (r <= 0.0) {
+                chosen = deltas[k];
+                break;
+              }
+            }
+          } else if (aquaticCandidates.length > 0) {
+            chosen = aquaticCandidates[Math.floor(Math.random() * aquaticCandidates.length)];
+          }
+          a.x = Math.max(0, Math.min(gsz - 1, a.x + chosen.dx));
+          a.y = Math.max(0, Math.min(gsz - 1, a.y + chosen.dy));
         }
-        a.x = Math.max(0, Math.min(gsz - 1, a.x + chosen.dx));
-        a.y = Math.max(0, Math.min(gsz - 1, a.y + chosen.dy));
       }
 
-      // Ecdysis-linked growth and terminal molt
+      // Ecdysis-linked growth and terminal molt (TethysBio-aligned gating and hazard)
       if (toggles.molting !== false && !a.mature) {
-        const moltProb = a.stage <= 6 ? 0.015 : a.stage <= 9 ? 0.008 : 0.004;
+        const moltProb = moltProbability(a, cellT, this.day, this.params, dt);
         if (Math.random() < moltProb) {
-          const maxStage = a.sex === 'male' ? 19 : 16;
+          const maxStage = a.sex === 'male'
+            ? (orgParams.max_stage_male ?? 19)
+            : (orgParams.max_stage_female ?? 16);
           const nextStage = Math.min(maxStage, a.stage + 1);
           const probMat = maturityProbability(a, cellT, m);
           const isMaturing = Math.random() < probMat || nextStage >= maxStage;
-          a.cw = growthIncrement(a, cellT, g, isMaturing);
+          const condition = moltConditionFactor(a, orgParams, toggles);
+          a.cw = growthIncrement(a, cellT, g, isMaturing, condition);
           a.stage = nextStage;
+          a.last_molt_day = this.day;
+          a.degree_days = 0.0;
+          if (toggles.use_energetics !== false && toggles.bioenergetics !== false) {
+            a.energy_reserve *= orgParams.molt_energy_retention ?? 0.1;
+          }
           if (isMaturing) {
             a.mature = true;
             a.shell_age = 0;
@@ -369,7 +444,7 @@ export class Model {
       if (a.mature) a.shell_age += dt;
 
       // Natural mortality
-      const haz = mortalityHazards(a, nMeasured, K, cellT, mo, toggles, dt);
+      const haz = mortalityHazards(a, nMeasured, K, cellT, mo, toggles, dt, this.day);
       if (Math.random() < haz) {
         a.alive = false;
         this.deaths += 1;
