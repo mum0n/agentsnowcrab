@@ -295,9 +295,13 @@ export class Model {
     const survivors = [];
     const dt = this.params.simulation?.dt ?? 1.0;
     const legalThreshold = fishery.legal_size_male ?? fishery.legal_size_mm ?? 95.0;
-    const fishProbDaily = fishery.fishing_probability_daily ?? 0.0;
     const fStart = fishery.fishing_season_start ?? 90;
     const fEnd = fishery.fishing_season_end ?? 150;
+    const seasonDays = fStart <= fEnd ? (fEnd - fStart + 1) : ((365 - fStart + 1) + fEnd);
+    const annualHarvestRate = fishery.fishing_harvest_rate_annual;
+    const fDailyHazard = annualHarvestRate !== undefined
+      ? -Math.log(1.0 - Math.min(0.999999, Math.max(0.0, annualHarvestRate))) / Math.max(1, seasonDays)
+      : -Math.log(1.0 - Math.min(0.999999, Math.max(0.0, fishery.fishing_probability_daily ?? 0.0)));
     const dayOfYear = (this.day % 365) + 1;
     this.updateEnvironmentalFields(dayOfYear);
     const inSeason = fStart <= fEnd ? (dayOfYear >= fStart && dayOfYear <= fEnd) : (dayOfYear >= fStart || dayOfYear <= fEnd);
@@ -454,7 +458,7 @@ export class Model {
       // Commercial fishery harvest (size-based legal male, selectivity, dt-scaled, outside MPAs)
       const inReserve = isInExclusionZones(a.x, a.y, this.exclusionBoxes);
       if (
-        fishProbDaily > 0 &&
+        fDailyHazard > 0 &&
         inSeason &&
         !inReserve &&
         a.sex === 'male' &&
@@ -462,8 +466,7 @@ export class Model {
         a.cw >= 68.0
       ) {
         const sel = 1.0 / (1.0 + Math.exp(-(a.cw - legalThreshold) / 5.0));
-        const pDaily = Math.min(0.999999, fishProbDaily * sel);
-        const pHarvest = -Math.expm1(dt * Math.log1p(-pDaily));
+        const pHarvest = 1.0 - Math.exp(-fDailyHazard * sel * dt);
         if (Math.random() < pHarvest) {
           a.fishery_removed = true;
           a.alive = false;
@@ -550,20 +553,24 @@ export class Model {
       const prevBirths = this.annual.length ? (this.annual[this.annual.length - 1].cumulative_births || 0) : 0;
       const recruits = Math.max(0, this.births - prevBirths);
       const spawners = matureFemales.length;
-      const annualCatch = this.catchTotal - (this.annual.length ? this.annual[this.annual.length - 1].cumulative_catch : 0);
+      const prevCatchKg = this.annual.length ? (this.annual[this.annual.length - 1].cumulative_catch_kg || 0) : 0;
+      const totalCatchKg = this.catchBiomassKg || 0;
+      const annualCatchKg = Math.max(0, totalCatchKg - prevCatchKg);
+      const availLegalBiomassKg = legalBiomassKg + annualCatchKg;
 
       this.annual.push({
         year,
         day: this.day,
         biomass_kg: totalBiomassKg,
         legal_biomass_kg: legalBiomassKg,
-        annual_catch_kg: annualCatch * 0.45,
+        annual_catch_kg: annualCatchKg,
         cumulative_catch: this.catchTotal,
+        cumulative_catch_kg: totalCatchKg,
         cumulative_births: this.births,
         spawners,
         recruits,
         mean_cw: meanCW,
-        f_rate: legalBiomassKg > 0 ? Math.min(0.9, (annualCatch * 0.45) / legalBiomassKg) : 0.0,
+        f_rate: availLegalBiomassKg > 0 ? annualCatchKg / availLegalBiomassKg : 0.0,
       });
     }
   }

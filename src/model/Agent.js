@@ -265,7 +265,10 @@ export function moltProbability(agent, T, day, params = {}, dt = 1.0) {
   }
 
   let thermalInhibition = 1.0;
-  const useThermal = toggles.use_thermal_stress !== false && toggles.thermal_stress !== false;
+  const useThermal =
+    toggles.use_thermal !== false &&
+    toggles.use_thermal_stress !== false &&
+    toggles.thermal_stress !== false;
   const onset = phen.molt_thermal_onset ?? 10.0;
   const bandwidth = phen.molt_thermal_bandwidth ?? 3.0;
   if (useThermal && bandwidth > 0.0 && T > onset) {
@@ -408,7 +411,7 @@ export function mortalityHazards(agent, N_measured, K, T, mo = {}, toggles = {},
   }
 
   let cannibal = 0.0;
-  const cannEnabled = toggles.use_cannibalism === true || toggles.cannibalism === true;
+  const cannEnabled = toggles.use_cannibalism ?? toggles.cannibalism ?? false;
   if (cannEnabled && agent.cw < (mo.cannibalism_size_threshold ?? 35.0)) {
     cannibal = ((mo.rate_cannibalism ?? 0.05) / 365.0) * dt;
   }

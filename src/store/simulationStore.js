@@ -5,6 +5,27 @@ import { loadConfig } from '../config/snowcrab.js';
 
 let timerId = null;
 
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * Format simulation day count into Year-Month-Day starting at Year 0 (0-01-01).
+ */
+export function formatSimDate(day = 0) {
+  const d = Math.max(0, Math.floor(Number(day) || 0));
+  const year = Math.floor(d / 365);
+  let rem = d % 365;
+  let month = 1;
+  for (let i = 0; i < MONTH_DAYS.length; i++) {
+    if (rem < MONTH_DAYS[i]) {
+      month = i + 1;
+      break;
+    }
+    rem -= MONTH_DAYS[i];
+  }
+  const dom = rem + 1;
+  return `${year}-${String(month).padStart(2, '0')}-${String(dom).padStart(2, '0')}`;
+}
+
 export const useStore = create((set, get) => ({
   params: DEFAULTS,
   configName: 'snowcrab',
@@ -15,7 +36,7 @@ export const useStore = create((set, get) => ({
   stageCounts: new Array(20).fill(0),
   exclusionBoxes: [],
   running: false,
-  status: 'Ready — day 0 of 730',
+  status: `Ready — day 0 of 730 (${formatSimDate(0)})`,
   day: 0,
   stepDays: 10,
   durationYears: 2,
@@ -156,7 +177,7 @@ export const useStore = create((set, get) => ({
       history: [...model.history],
       annual: [...model.annual],
       stageCounts: [...model.stageCounts],
-      status: `Ready — day 0 of ${hDays}`,
+      status: `Ready — day 0 of ${hDays} (${formatSimDate(0)})`,
       day: 0,
       running: false,
       horizonDays: hDays,
@@ -200,7 +221,7 @@ export const useStore = create((set, get) => ({
       meanCw: s.mean_cw || 0,
       legalBiomass: s.legal_biomass_kg || 0,
       totalBiomass: s.total_biomass_kg || 0,
-      status: `Simulation running — day ${model.day} of ${horizonDays}`,
+      status: `Simulation running — day ${model.day} of ${horizonDays} (${formatSimDate(model.day)})`,
     });
   },
 
@@ -213,7 +234,7 @@ export const useStore = create((set, get) => ({
       if (day >= horizonDays) {
         clearInterval(timerId);
         timerId = null;
-        set({ running: false, status: `Simulation completed — day ${day} of ${horizonDays}` });
+        set({ running: false, status: `Simulation completed — day ${day} of ${horizonDays} (${formatSimDate(day)})` });
         return;
       }
       step();
@@ -226,7 +247,7 @@ export const useStore = create((set, get) => ({
       timerId = null;
     }
     const { day, horizonDays } = get();
-    set({ running: false, status: `Simulation paused — day ${day} of ${horizonDays}` });
+    set({ running: false, status: `Simulation paused — day ${day} of ${horizonDays} (${formatSimDate(day)})` });
   },
 
   stop: () => {
@@ -263,7 +284,7 @@ export const useStore = create((set, get) => ({
         meanCw: s.mean_cw || 0,
         legalBiomass: s.legal_biomass_kg || 0,
         totalBiomass: s.total_biomass_kg || 0,
-        status: `Simulation rewound — day ${targetDay} of ${horizonDays}`,
+        status: `Simulation rewound — day ${targetDay} of ${horizonDays} (${formatSimDate(targetDay)})`,
       });
     }
   },

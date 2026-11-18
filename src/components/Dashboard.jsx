@@ -117,19 +117,24 @@ export default function Dashboard() {
   const gridTemps = useMemo(() => (model?.env?.temperature ? Array.from(model.env.temperature) : []), [model, day]);
   const gridHsis = useMemo(() => (model?.env?.hsi ? Array.from(model.env.hsi) : []), [model, day]);
 
+  // Fixed climatology bounds for bottom temperature (shared by Spatial Habitat & Environmental Distributions)
+  const tempClimatologyBounds = useMemo(() => {
+    const temps = tempCycle?.temps || [];
+    if (temps.length > 0) {
+      const tMin = temps.reduce((a, b) => (b < a ? b : a), Infinity);
+      const tMax = temps.reduce((a, b) => (b > a ? b : a), -Infinity);
+      return { zmin: tMin, zmax: tMax > tMin ? tMax : tMin + 1.0 };
+    }
+    return { zmin: -1.0, zmax: 8.0 };
+  }, [tempCycle]);
+
   // Fixed color-scale bounds for Tab 2 Spatial Habitat map
   const spatialColorBounds = useMemo(() => {
     if (backgroundLayer === 'hsi' || backgroundLayer === 'habitat_quality') {
       return { zmin: 0.0, zmax: 1.0 };
     }
     if (backgroundLayer === 'temperature') {
-      const temps = tempCycle?.temps || [];
-      if (temps.length > 0) {
-        const tMin = temps.reduce((a, b) => (b < a ? b : a), Infinity);
-        const tMax = temps.reduce((a, b) => (b > a ? b : a), -Infinity);
-        return { zmin: tMin, zmax: tMax > tMin ? tMax : tMin + 1.0 };
-      }
-      return { zmin: -1.0, zmax: 8.0 };
+      return tempClimatologyBounds;
     }
     const oceanDepths = gridDepths.filter((d) => d > 0);
     if (oceanDepths.length > 0) {
@@ -138,7 +143,7 @@ export default function Dashboard() {
       return { zmin: dMin, zmax: dMax > dMin ? dMax : dMin + 10.0 };
     }
     return { zmin: 0.0, zmax: 400.0 };
-  }, [backgroundLayer, tempCycle, gridDepths]);
+  }, [backgroundLayer, tempClimatologyBounds, gridDepths]);
 
   // Sizes for ogives & densities
   const sizes = useMemo(() => Array.from({ length: 140 }, (_, i) => 20 + i), []);
@@ -160,24 +165,31 @@ export default function Dashboard() {
   const selectivity = sizes.map((cw) => 1.0 / (1.0 + Math.exp(-0.25 * (cw - legalSize))));
 
   const empiricalOgive = useMemo(() => {
-    const bins = {};
-    for (let b = 30; b <= 140; b += 10) bins[b] = { total: 0, mature: 0 };
-    for (const a of agents) {
-      const b = Math.floor(a.cw / 10) * 10;
-      if (bins[b]) {
-        bins[b].total += 1;
-        if (a.mature) bins[b].mature += 1;
+    const computeSexOgive = (sex) => {
+      const bins = {};
+      for (let b = 20; b <= 150; b += 10) bins[b] = { total: 0, mature: 0 };
+      for (const a of agents) {
+        if (a.alive === false || a.sex !== sex || (a.stage || 4) <= 3) continue;
+        const b = Math.min(150, Math.max(20, Math.floor(a.cw / 10) * 10));
+        if (bins[b]) {
+          bins[b].total += 1;
+          if (a.mature) bins[b].mature += 1;
+        }
       }
-    }
-    const x = [];
-    const y = [];
-    for (let b = 30; b <= 140; b += 10) {
-      if (bins[b].total >= 2) {
-        x.push(b + 5);
-        y.push(bins[b].mature / bins[b].total);
+      const x = [];
+      const y = [];
+      for (let b = 20; b <= 150; b += 10) {
+        if (bins[b].total >= 2) {
+          x.push(b + 5);
+          y.push(bins[b].mature / bins[b].total);
+        }
       }
-    }
-    return { x, y };
+      return { x, y };
+    };
+    return {
+      male: computeSexOgive('male'),
+      female: computeSexOgive('female'),
+    };
   }, [agents]);
 
   // Macro-ecological model fits (Tab 4)
@@ -368,7 +380,7 @@ export default function Dashboard() {
         {/* TAB 1: Controls & AOI Setup (5:4 Aspect Ratio side-by-side) */}
         {/* ================================================================== */}
         {activeTab === 1 && (
-          <div className="tab1-grid">
+          <div className="tab1-grid" style={{ width: '80%', margin: '0 auto' }}>
             {/* Left: Regional Scotian Shelf Map */}
             <div className="card-panel">
               <h2>Scotian Shelf Regional Bathymetry (Click Map to Select AOI)</h2>
@@ -455,8 +467,8 @@ export default function Dashboard() {
               </div>
 
               {/* Text placed below map */}
-              <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div style={{ marginTop: 8, padding: '8px 10px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a8a' }}>
                     Selected: {aoi.latitude.toFixed(2)}°N, {Math.abs(aoi.longitude).toFixed(2)}°W
                   </div>
@@ -588,6 +600,7 @@ export default function Dashboard() {
         {/* TAB 2: Simulation & Habitat */}
         {/* ================================================================== */}
         {activeTab === 2 && (
+          <>
           <div className="tab2-grid">
             {/* Left Column: Spatial Plot + Below 2-Column Controls */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -619,12 +632,13 @@ export default function Dashboard() {
                               zauto: false,
                               zmin: spatialColorBounds.zmin,
                               zmax: spatialColorBounds.zmax,
-                              colorscale:
-                                backgroundLayer === 'temperature'
-                                  ? 'Inferno'
-                                  : backgroundLayer === 'depth'
-                                  ? 'Viridis'
-                                  : 'Viridis',
+                              colorscale: [
+                                [0.0, '#15385E'],
+                                [0.25, '#00A6CA'],
+                                [0.5, '#C1EEF1'],
+                                [0.75, '#FFE14F'],
+                                [1.0, '#FE7958'],
+                              ],
                               reversescale: backgroundLayer === 'depth',
                               showscale: true,
                               colorbar: {
@@ -758,313 +772,43 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {/* Background Layer Selector (above Exclusion / Clear MPA bar) */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '4px 8px', background: '#f8fafc', borderRadius: 4, border: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#334155' }}>Background Layer:</span>
-                  <select
-                    value={backgroundLayer}
-                    onChange={(e) => setBackgroundLayer(e.target.value)}
-                    style={{ padding: '2px 6px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11, background: '#ffffff', color: '#0f172a' }}
-                  >
-                    <option value="depth">Seabed Depth (m)</option>
-                    <option value="temperature">Bottom Temperature</option>
-                    <option value="habitat_quality">Habitat Quality (HSI)</option>
-                  </select>
-                </div>
-
-                {/* Below Plot MPA Bar */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, padding: '4px 8px', background: '#f8fafc', borderRadius: 4, border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: 11 }}>
-                    <span style={{ fontWeight: 600, color: '#334155' }}>Exclusion: </span>
-                    <span style={{ color: '#64748b', fontFamily: 'monospace' }}>
-                      {mpa && mpa.active ? `X [${Math.round(mpa.xmin)}–${Math.round(mpa.xmax)}], Y [${Math.round(mpa.ymin)}–${Math.round(mpa.ymax)}]` : 'None'}
-                    </span>
+                {/* Background Layer & Exclusion Zone Controls (Side-by-Side) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 8, padding: '4px 8px', background: '#f8fafc', borderRadius: 4, border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#334155' }}>Background Layer:</span>
+                    <select
+                      value={backgroundLayer}
+                      onChange={(e) => setBackgroundLayer(e.target.value)}
+                      style={{ padding: '2px 6px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11, background: '#ffffff', color: '#0f172a' }}
+                    >
+                      <option value="depth">Seabed Depth (m)</option>
+                      <option value="temperature">Bottom Temperature</option>
+                      <option value="habitat_quality">Habitat Quality (HSI)</option>
+                    </select>
                   </div>
-                  <button
-                    type="button"
-                    onClick={clearExclusionBoxes}
-                    style={{
-                      background: '#f1f5f9',
-                      border: '1px solid #cbd5e1',
-                      borderRadius: 4,
-                      padding: '2px 8px',
-                      fontSize: 11,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      color: '#475569',
-                    }}
-                  >
-                    Clear MPA
-                  </button>
-                </div>
-              </div>
-
-              {/* 2-Column Controls (Numeric Entries, No Sliders) */}
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {/* Col 1: Simulation & Environmental Controls */}
-                  <div className="controls-col-card">
-                    <div className="controls-col-title">Simulation & Environmental Controls</div>
-
-                    <div className="ctrl-row">
-                      <span>Grid Resolution (cells):</span>
-                      <input
-                        type="number"
-                        className="ctrl-input"
-                        value={params.ibm?.grid_size || 1000}
-                        onChange={(e) => updateParam('ibm.grid_size', parseInt(e.target.value) || 1000)}
-                      />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontSize: 11 }}>
+                      <span style={{ fontWeight: 600, color: '#334155' }}>Exclusion: </span>
+                      <span style={{ color: '#64748b', fontFamily: 'monospace' }}>
+                        {mpa && mpa.active ? `X [${Math.round(mpa.xmin)}–${Math.round(mpa.xmax)}], Y [${Math.round(mpa.ymin)}–${Math.round(mpa.ymax)}]` : 'None'}
+                      </span>
                     </div>
-                    <div className="ctrl-row">
-                      <span>Grid Unit / Cell Size (m):</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="ctrl-input"
-                        value={params.ibm?.unit_meters || 1.0}
-                        onChange={(e) => updateParam('ibm.unit_meters', parseFloat(e.target.value) || 1.0)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Base Bottom Temp Offset (°C):</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        className="ctrl-input"
-                        value={params.environment?.temp_offset || 0.0}
-                        onChange={(e) => updateParam('environment.temp_offset', parseFloat(e.target.value) || 0.0)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Seasonal Temp Multiplier:</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        className="ctrl-input"
-                        value={params.environment?.temp_multiplier || 1.0}
-                        onChange={(e) => updateParam('environment.temp_multiplier', parseFloat(e.target.value) || 1.0)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Habitat Suitability Offset:</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        className="ctrl-input"
-                        value={params.environment?.habitat_offset || 0.0}
-                        onChange={(e) => updateParam('environment.habitat_offset', parseFloat(e.target.value) || 0.0)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Habitat Multiplier:</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        className="ctrl-input"
-                        value={params.environment?.habitat_multiplier || 1.0}
-                        onChange={(e) => updateParam('environment.habitat_multiplier', parseFloat(e.target.value) || 1.0)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Food Availability Multiplier:</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        className="ctrl-input"
-                        value={params.environment?.food_availability || 1.0}
-                        onChange={(e) => updateParam('environment.food_availability', parseFloat(e.target.value) || 1.0)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Carrying Capacity (/km²):</span>
-                      <input
-                        type="number"
-                        step="500"
-                        className="ctrl-input"
-                        value={params.environment?.benthic_carrying_capacity_density || 6000}
-                        onChange={(e) => updateParam('environment.benthic_carrying_capacity_density', parseFloat(e.target.value) || 6000)}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Temp Pref Min (°C):</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="ctrl-input"
-                        value={params.environment?.temp_pref_min ?? -1.5}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (Number.isFinite(v)) updateParam('environment.temp_pref_min', v);
-                        }}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Temp Pref Opt (°C):</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="ctrl-input"
-                        value={params.environment?.temp_pref_opt ?? 5.0}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (Number.isFinite(v)) updateParam('environment.temp_pref_opt', v);
-                        }}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Temp Pref Max (°C):</span>
-                      <input
-                        type="number"
-                        step="0.5"
-                        className="ctrl-input"
-                        value={params.environment?.temp_pref_max ?? 10.0}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (Number.isFinite(v)) updateParam('environment.temp_pref_max', v);
-                        }}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Depth Opt (m):</span>
-                      <input
-                        type="number"
-                        step="10"
-                        min="25"
-                        className="ctrl-input"
-                        value={params.environment?.depth_opt ?? 200.0}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (Number.isFinite(v) && v >= 25) updateParam('environment.depth_opt', v);
-                        }}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Depth Sigma (m):</span>
-                      <input
-                        type="number"
-                        step="10"
-                        min="10"
-                        className="ctrl-input"
-                        value={params.environment?.depth_sigma ?? 100.0}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (Number.isFinite(v) && v >= 10) updateParam('environment.depth_sigma', v);
-                        }}
-                      />
-                    </div>
-                    <div className="ctrl-row">
-                      <span>Max Movement (m/yr):</span>
-                      <input
-                        type="number"
-                        step="500"
-                        min="0"
-                        className="ctrl-input"
-                        value={params.ibm?.max_move_m_per_year ?? 7300}
-                        onChange={(e) => {
-                          const v = parseFloat(e.target.value);
-                          if (Number.isFinite(v) && v >= 0) updateParam('ibm.max_move_m_per_year', v);
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Col 2: Commercial Fishing Activity & Biological Processes */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div className="controls-col-card">
-                      <div className="controls-col-title">Commercial Fishing Activity</div>
-                      <div className="ctrl-row">
-                        <span>Fishing Start (Day):</span>
-                        <input
-                          type="number"
-                          className="ctrl-input"
-                          value={params.fishery?.fishing_season_start || 90}
-                          onChange={(e) => updateParam('fishery.fishing_season_start', parseInt(e.target.value) || 90)}
-                        />
-                      </div>
-                      <div className="ctrl-row">
-                        <span>Fishing End (Day):</span>
-                        <input
-                          type="number"
-                          className="ctrl-input"
-                          value={params.fishery?.fishing_season_end || 150}
-                          onChange={(e) => updateParam('fishery.fishing_season_end', parseInt(e.target.value) || 150)}
-                        />
-                      </div>
-                      <div className="ctrl-row">
-                        <span>Daily Harvest Probability:</span>
-                        <input
-                          type="number"
-                          step="0.0005"
-                          className="ctrl-input"
-                          value={params.fishery?.fishing_probability_daily || 0.002}
-                          onChange={(e) => updateParam('fishery.fishing_probability_daily', parseFloat(e.target.value) || 0.002)}
-                        />
-                      </div>
-                      <div className="ctrl-row">
-                        <span>Legal Male Size (mm):</span>
-                        <input
-                          type="number"
-                          step="1.0"
-                          className="ctrl-input"
-                          value={params.fishery?.legal_size_male || 95.0}
-                          onChange={(e) => updateParam('fishery.legal_size_male', parseFloat(e.target.value) || 95.0)}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="controls-col-card" style={{ flexGrow: 1 }}>
-                      <div className="controls-col-title">Biological Processes</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={params.ibm?.toggles?.use_energetics ?? true}
-                            onChange={(e) => updateParam('ibm.toggles.use_energetics', e.target.checked)}
-                          />
-                          <span>Bioenergetics</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={params.ibm?.toggles?.use_thermal ?? true}
-                            onChange={(e) => updateParam('ibm.toggles.use_thermal', e.target.checked)}
-                          />
-                          <span>Thermal Stress</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={params.ibm?.toggles?.use_cannibalism ?? false}
-                            onChange={(e) => updateParam('ibm.toggles.use_cannibalism', e.target.checked)}
-                          />
-                          <span>Cannibalism</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={params.ibm?.toggles?.use_senescence ?? true}
-                            onChange={(e) => updateParam('ibm.toggles.use_senescence', e.target.checked)}
-                          />
-                          <span>Senescence</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={params.ibm?.toggles?.use_movement ?? true}
-                            onChange={(e) => updateParam('ibm.toggles.use_movement', e.target.checked)}
-                          />
-                          <span>Taxis Movement</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={params.ibm?.toggles?.use_reproduction ?? true}
-                            onChange={(e) => updateParam('ibm.toggles.use_reproduction', e.target.checked)}
-                          />
-                          <span>Reproduction</span>
-                        </label>
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={clearExclusionBoxes}
+                      style={{
+                        background: '#f1f5f9',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        color: '#475569',
+                      }}
+                    >
+                      Clear exclusion zone
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1150,7 +894,12 @@ export default function Dashboard() {
                       layout={lightPlotLayout({
                         autosize: true,
                         title: { text: `Bottom Temperature<br>(μ = ${meanTempVal} °C, Δ = ${spanTempVal} °C)`, font: { size: 11, color: '#1e293b' } },
-                        xaxis: { title: 'Temp (°C)', showgrid: true, gridcolor: '#f1f5f9' },
+                        xaxis: {
+                          title: 'Temp (°C)',
+                          range: [tempClimatologyBounds.zmin, tempClimatologyBounds.zmax],
+                          showgrid: true,
+                          gridcolor: '#f1f5f9',
+                        },
                         yaxis: { title: 'Cells', showgrid: true, gridcolor: '#f1f5f9' },
                         margin: { l: 35, r: 10, t: 35, b: 30 },
                       })}
@@ -1177,6 +926,297 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* Full-Width Grouped Controls Panel */}
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, marginTop: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+              {/* Group 1: Grid & Spatial Habitat */}
+              <div className="controls-col-card">
+                <div className="controls-col-title">Grid & Spatial Habitat</div>
+                <div className="ctrl-row" title="Number of grid cells along each axis of the spatial simulation domain." style={{ cursor: 'help' }}>
+                  <span>Grid Resolution (cells):</span>
+                  <input
+                    type="number"
+                    className="ctrl-input"
+                    value={params.ibm?.grid_size || 1000}
+                    onChange={(e) => updateParam('ibm.grid_size', parseInt(e.target.value) || 1000)}
+                  />
+                </div>
+                <div className="ctrl-row" title="Physical width of each grid cell in meters; scales movement step size and domain area." style={{ cursor: 'help' }}>
+                  <span>Grid Unit / Cell Size (m):</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    className="ctrl-input"
+                    value={params.ibm?.unit_meters || 1.0}
+                    onChange={(e) => updateParam('ibm.unit_meters', parseFloat(e.target.value) || 1.0)}
+                  />
+                </div>
+                <div className="ctrl-row" title="Optimal seabed depth (m) for benthic snow crab habitat suitability (HSI = 1 peak; open-ended deeper)." style={{ cursor: 'help' }}>
+                  <span>Depth Opt (m):</span>
+                  <input
+                    type="number"
+                    step="10"
+                    min="25"
+                    className="ctrl-input"
+                    value={params.environment?.depth_opt ?? 200.0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isFinite(v) && v >= 25) updateParam('environment.depth_opt', v);
+                    }}
+                  />
+                </div>
+                <div className="ctrl-row" title="Gaussian width (m) of the shallow depth suitability taper below Depth Opt." style={{ cursor: 'help' }}>
+                  <span>Depth Sigma (m):</span>
+                  <input
+                    type="number"
+                    step="10"
+                    min="10"
+                    className="ctrl-input"
+                    value={params.environment?.depth_sigma ?? 100.0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isFinite(v) && v >= 10) updateParam('environment.depth_sigma', v);
+                    }}
+                  />
+                </div>
+                <div className="ctrl-row" title="Maximum annual movement budget (m/yr) converted into daily habitat taxis step distance." style={{ cursor: 'help' }}>
+                  <span>Max Movement (m/yr):</span>
+                  <input
+                    type="number"
+                    step="500"
+                    min="0"
+                    className="ctrl-input"
+                    value={params.ibm?.max_move_m_per_year ?? 7300}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isFinite(v) && v >= 0) updateParam('ibm.max_move_m_per_year', v);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Group 2: Thermal & Food Environment */}
+              <div className="controls-col-card">
+                <div className="controls-col-title">Thermal & Food Environment</div>
+                <div className="ctrl-row" title="Constant temperature shift (°C) added to the seasonal bottom temperature climatology." style={{ cursor: 'help' }}>
+                  <span>Base Bottom Temp Offset (°C):</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="ctrl-input"
+                    value={params.environment?.temp_offset || 0.0}
+                    onChange={(e) => updateParam('environment.temp_offset', parseFloat(e.target.value) || 0.0)}
+                  />
+                </div>
+                <div className="ctrl-row" title="Scaling factor applied to the seasonal bottom temperature amplitude." style={{ cursor: 'help' }}>
+                  <span>Seasonal Temp Multiplier:</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    className="ctrl-input"
+                    value={params.environment?.temp_multiplier || 1.0}
+                    onChange={(e) => updateParam('environment.temp_multiplier', parseFloat(e.target.value) || 1.0)}
+                  />
+                </div>
+                <div className="ctrl-row" title="Lower temperature bound (°C) where thermal habitat suitability tapers to zero." style={{ cursor: 'help' }}>
+                  <span>Temp Pref Min (°C):</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    className="ctrl-input"
+                    value={params.environment?.temp_pref_min ?? -1.5}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isFinite(v)) updateParam('environment.temp_pref_min', v);
+                    }}
+                  />
+                </div>
+                <div className="ctrl-row" title="Optimal bottom temperature (°C) for peak thermal habitat suitability." style={{ cursor: 'help' }}>
+                  <span>Temp Pref Opt (°C):</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    className="ctrl-input"
+                    value={params.environment?.temp_pref_opt ?? 5.0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isFinite(v)) updateParam('environment.temp_pref_opt', v);
+                    }}
+                  />
+                </div>
+                <div className="ctrl-row" title="Upper exclusion temperature (°C) above which thermal habitat suitability is zero." style={{ cursor: 'help' }}>
+                  <span>Temp Pref Max (°C):</span>
+                  <input
+                    type="number"
+                    step="0.5"
+                    className="ctrl-input"
+                    value={params.environment?.temp_pref_max ?? 10.0}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      if (Number.isFinite(v)) updateParam('environment.temp_pref_max', v);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Group 3: Habitat & Carrying Capacity */}
+              <div className="controls-col-card">
+                <div className="controls-col-title">Habitat & Carrying Capacity</div>
+                <div className="ctrl-row" title="Additive offset applied to computed cell Habitat Suitability Index (HSI)." style={{ cursor: 'help' }}>
+                  <span>Habitat Suitability Offset:</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    className="ctrl-input"
+                    value={params.environment?.habitat_offset || 0.0}
+                    onChange={(e) => updateParam('environment.habitat_offset', parseFloat(e.target.value) || 0.0)}
+                  />
+                </div>
+                <div className="ctrl-row" title="Multiplicative scaling factor applied to cell Habitat Suitability Index (HSI)." style={{ cursor: 'help' }}>
+                  <span>Habitat Multiplier:</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    className="ctrl-input"
+                    value={params.environment?.habitat_multiplier || 1.0}
+                    onChange={(e) => updateParam('environment.habitat_multiplier', parseFloat(e.target.value) || 1.0)}
+                  />
+                </div>
+                <div className="ctrl-row" title="Scaling multiplier for benthic food availability driving bioenergetic intake and taxis." style={{ cursor: 'help' }}>
+                  <span>Food Availability Multiplier:</span>
+                  <input
+                    type="number"
+                    step="0.05"
+                    className="ctrl-input"
+                    value={params.environment?.food_availability || 1.0}
+                    onChange={(e) => updateParam('environment.food_availability', parseFloat(e.target.value) || 1.0)}
+                  />
+                </div>
+                <div
+                  className="ctrl-row"
+                  title="Reference benthic carrying capacity (Total No./km²) for the empirically measured size fraction (instars 8+, stage ≥ 11, and mature crabs); regulates density-dependent baseline mortality when abundance exceeds K."
+                  style={{ cursor: 'help' }}
+                >
+                  <span>Carrying Capacity (Total No./km²):</span>
+                  <input
+                    type="number"
+                    step="500"
+                    className="ctrl-input"
+                    value={params.environment?.benthic_carrying_capacity_density || 6000}
+                    onChange={(e) => updateParam('environment.benthic_carrying_capacity_density', parseFloat(e.target.value) || 6000)}
+                  />
+                </div>
+              </div>
+
+              {/* Group 4: Fishery & Biological Processes */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="controls-col-card">
+                  <div className="controls-col-title">Commercial Fishery</div>
+                  <div className="ctrl-row" title="Day of year (1–365) when the commercial snow crab fishing season opens." style={{ cursor: 'help' }}>
+                    <span>Fishing Start (Day):</span>
+                    <input
+                      type="number"
+                      className="ctrl-input"
+                      value={params.fishery?.fishing_season_start || 90}
+                      onChange={(e) => updateParam('fishery.fishing_season_start', parseInt(e.target.value) || 90)}
+                    />
+                  </div>
+                  <div className="ctrl-row" title="Day of year (1–365) when the commercial snow crab fishing season closes." style={{ cursor: 'help' }}>
+                    <span>Fishing End (Day):</span>
+                    <input
+                      type="number"
+                      className="ctrl-input"
+                      value={params.fishery?.fishing_season_end || 150}
+                      onChange={(e) => updateParam('fishery.fishing_season_end', parseInt(e.target.value) || 150)}
+                    />
+                  </div>
+                  <div className="ctrl-row" title="Target finite annual harvest rate (0–0.99), rescaled internally to a daily fishing hazard over the active fishing season." style={{ cursor: 'help' }}>
+                    <span>Annual Harvest Rate:</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="0.99"
+                      className="ctrl-input"
+                      value={params.fishery?.fishing_harvest_rate_annual ?? 0.0}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (Number.isFinite(v) && v >= 0 && v < 1) {
+                          updateParam('fishery.fishing_harvest_rate_annual', v);
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="ctrl-row" title="Minimum carapace width (mm) at 50% gear selectivity for commercial male harvest." style={{ cursor: 'help' }}>
+                    <span>Legal Male Size (mm):</span>
+                    <input
+                      type="number"
+                      step="1.0"
+                      className="ctrl-input"
+                      value={params.fishery?.legal_size_male || 95.0}
+                      onChange={(e) => updateParam('fishery.legal_size_male', parseFloat(e.target.value) || 95.0)}
+                    />
+                  </div>
+                </div>
+
+                <div className="controls-col-card" style={{ flexGrow: 1 }}>
+                  <div className="controls-col-title">Biological Processes</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
+                    <label title="Enable Kleiber metabolic maintenance, Holling Type II intake, and starvation/molt energetics." style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+                      <input
+                        type="checkbox"
+                        checked={params.ibm?.toggles?.use_energetics ?? true}
+                        onChange={(e) => updateParam('ibm.toggles.use_energetics', e.target.checked)}
+                      />
+                      <span>Bioenergetics</span>
+                    </label>
+                    <label title="Enable elevated mortality and ecdysial inhibition above thermal stress thresholds." style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+                      <input
+                        type="checkbox"
+                        checked={params.ibm?.toggles?.use_thermal ?? true}
+                        onChange={(e) => updateParam('ibm.toggles.use_thermal', e.target.checked)}
+                      />
+                      <span>Thermal Stress</span>
+                    </label>
+                    <label title="Enable size-dependent cannibalism mortality on small benthic juveniles (< 35 mm)." style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+                      <input
+                        type="checkbox"
+                        checked={params.ibm?.toggles?.use_cannibalism ?? false}
+                        onChange={(e) => updateParam('ibm.toggles.use_cannibalism', e.target.checked)}
+                      />
+                      <span>Cannibalism</span>
+                    </label>
+                    <label title="Enable exponential post-terminal-molt mortality after 3 years of shell age." style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+                      <input
+                        type="checkbox"
+                        checked={params.ibm?.toggles?.use_senescence ?? true}
+                        onChange={(e) => updateParam('ibm.toggles.use_senescence', e.target.checked)}
+                      />
+                      <span>Senescence</span>
+                    </label>
+                    <label title="Enable directed softmax habitat taxis (vs. undirected aquatic random walk)." style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+                      <input
+                        type="checkbox"
+                        checked={params.ibm?.toggles?.use_movement ?? true}
+                        onChange={(e) => updateParam('ibm.toggles.use_movement', e.target.checked)}
+                      />
+                      <span>Taxis Movement</span>
+                    </label>
+                    <label title="Enable annual female egg extrusion, fecundity senescence, and larval cohort seeding." style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'help' }}>
+                      <input
+                        type="checkbox"
+                        checked={params.ibm?.toggles?.use_reproduction ?? true}
+                        onChange={(e) => updateParam('ibm.toggles.use_reproduction', e.target.checked)}
+                      />
+                      <span>Reproduction</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          </>
         )}
 
         {/* ================================================================== */}
@@ -1297,15 +1337,27 @@ export default function Dashboard() {
                         name: 'Gear Selectivity (95mm)',
                         line: { color: '#f59e0b', dash: 'dash', width: 2 },
                       },
-                      ...(empiricalOgive.x.length > 0
+                      ...(empiricalOgive.male.x.length > 0
                         ? [
                             {
-                              x: empiricalOgive.x,
-                              y: empiricalOgive.y,
+                              x: empiricalOgive.male.x,
+                              y: empiricalOgive.male.y,
                               type: 'scatter',
                               mode: 'markers',
-                              name: 'Empirical Maturity',
-                              marker: { color: '#0f172a', size: 7, symbol: 'diamond' },
+                              name: 'Empirical Male Maturity',
+                              marker: { color: '#0284c7', size: 7, symbol: 'diamond', line: { color: '#0f172a', width: 0.8 } },
+                            },
+                          ]
+                        : []),
+                      ...(empiricalOgive.female.x.length > 0
+                        ? [
+                            {
+                              x: empiricalOgive.female.x,
+                              y: empiricalOgive.female.y,
+                              type: 'scatter',
+                              mode: 'markers',
+                              name: 'Empirical Female Maturity',
+                              marker: { color: '#e11d48', size: 7, symbol: 'diamond', line: { color: '#0f172a', width: 0.8 } },
                             },
                           ]
                         : []),
@@ -1331,6 +1383,11 @@ export default function Dashboard() {
                 <div style={{ width: '100%', height: 320 }}>
                   <Plot
                     data={(() => {
+                      const allMatFemales = [...matFemales, ...oviFemales];
+                      const totalBenthic = Math.max(
+                        1,
+                        immMales.length + sublegalMatMales.length + legalMatMales.length + immFemales.length + allMatFemales.length
+                      );
                       const kde = (vals, h = 3.0) => {
                         if (!vals.length) return Array(100).fill(0);
                         const grid = Array.from({ length: 100 }, (_, i) => 10 + (i / 99) * 160);
@@ -1340,7 +1397,7 @@ export default function Dashboard() {
                             const z = (x - v) / h;
                             sum += Math.exp(-0.5 * z * z);
                           }
-                          return sum / (vals.length * h * Math.sqrt(2 * Math.PI));
+                          return sum / (totalBenthic * h * Math.sqrt(2 * Math.PI));
                         });
                       };
                       const grid = Array.from({ length: 100 }, (_, i) => 10 + (i / 99) * 160);
@@ -1348,7 +1405,7 @@ export default function Dashboard() {
                       const subM = kde(sublegalMatMales.map(a => a.cw));
                       const legM = kde(legalMatMales.map(a => a.cw));
                       const imF = kde(immFemales.map(a => a.cw));
-                      const matF = kde(matFemales.map(a => a.cw));
+                      const matF = kde(allMatFemales.map(a => a.cw));
                       const maxY = Math.max(...imM, ...subM, ...legM, ...imF, ...matF, 0.01);
                       return [
                         { x: grid, y: imM, type: 'scatter', mode: 'lines', name: 'Immature Male', line: { color: '#56B4E9', width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(86, 180, 233, 0.3)' },
@@ -1445,7 +1502,7 @@ export default function Dashboard() {
                         <th style={cellStyle}>Spawners</th>
                         <th style={cellStyle}>Recruits</th>
                         <th style={cellStyle}>Mean CW (mm)</th>
-                        <th style={cellStyle}>F-rate</th>
+                        <th style={cellStyle}>Harvest Rate</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -76,6 +76,7 @@ export const DEFAULTS = {
     habitat_multiplier: 1.0,
   },
   fishery: {
+    fishing_harvest_rate_annual: 0.0,
     fishing_probability_daily: 0.0,
     legal_size_male: 95.0,
     legal_size_mm: 95.0,
