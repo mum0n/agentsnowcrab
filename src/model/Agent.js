@@ -328,7 +328,7 @@ export function isEmpiricallyMeasured(agent) {
 const BASELINE_STAGE_MORTALITY = [
   0.35, 0.35, 0.35, 0.35,
   0.15, 0.15, 0.15, 0.15,
-  0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.06,
+  0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.06,
 ];
 
 /**
@@ -365,7 +365,7 @@ export function calculateEnergyChange(agent, T = 4.0, foodAvail = 5.0, env = {},
  * Competing-risks mortality probability matching TethysBio::mortality_components:
  * P_mort = 1 - exp(-sum(h_i) * dt).
  */
-export function mortalityHazards(agent, N_measured, K, T, mo = {}, toggles = {}, dt = 1.0, day = 0.0) {
+export function mortalityHazards(agent, N_measured, K, T, mo = {}, toggles = {}, dt = 1.0, day = 0.0, localCrowdingRatio = 0.0) {
   const stageRates = mo.baseline_rate_by_stage || BASELINE_STAGE_MORTALITY;
   const st = Math.min(stageRates.length - 1, Math.max(0, agent.stage || 4));
   const traitSigma = mo.baseline_trait_sigma ?? 0.25;
@@ -377,7 +377,9 @@ export function mortalityHazards(agent, N_measured, K, T, mo = {}, toggles = {},
   let base = (stageRates[st] / 365.0) * traitFactor * dt;
   if (isEmpiricallyMeasured(agent) && K > 0) {
     const gamma = mo.benthic_carrying_capacity_exponent ?? 2.0;
-    base *= 1.0 + Math.pow(N_measured / Math.max(K, 1.0), gamma);
+    const globalFeedback = 1.0 + Math.pow(N_measured / Math.max(K, 1.0), gamma);
+    const localFeedback = localCrowdingRatio > 1.0 ? 1.0 + Math.pow(localCrowdingRatio, gamma) : 1.0;
+    base *= Math.max(globalFeedback, localFeedback);
   }
 
   const predRate = mo.rate_predation ?? 0.05;

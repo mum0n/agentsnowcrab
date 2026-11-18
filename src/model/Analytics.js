@@ -636,8 +636,8 @@ export function evaluatePopulationCriteria(history = [], agents = [], params = {
   const emp = computeEmpiricalOgive(living, 'male', 5.0);
   if (emp.sizes.length > 0) {
     const m = params.maturity || {};
-    const l50 = m.maturity_l50_male ?? m.cw50 ?? 91.8;
-    const slope = m.maturity_slope_male ?? m.beta ?? 6.9957;
+    const l50 = m.maturity_l50_male ?? 91.8;
+    const slope = m.maturity_slope_male ?? 6.9957;
     const gate = m.maturity_size_gate ?? 35.0;
     let se = 0;
     let validBins = 0;
@@ -725,7 +725,7 @@ export function exportScenarioToml(config = {}) {
     `benthic_carrying_capacity_density = ${(env.benthic_carrying_capacity_density ?? 6000).toFixed(2)}`,
     '',
     '[fishery]',
-    `fishing_probability_daily = ${(fish.fishing_probability_daily ?? 0).toFixed(4)}`,
+    `fishing_harvest_rate_annual = ${(fish.fishing_harvest_rate_annual ?? 0).toFixed(4)}`,
     `legal_size_male = ${(fish.legal_size_male ?? 95).toFixed(2)}`,
     `fishing_season_start = ${(fish.fishing_season_start ?? 90).toFixed(1)}`,
     `fishing_season_end = ${(fish.fishing_season_end ?? 150).toFixed(1)}`,

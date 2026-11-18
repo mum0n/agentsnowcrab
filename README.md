@@ -2,11 +2,11 @@
 
 React/Electron port of TethysBio (snow crab IBM). Runs in any supported browser via Vite, or as a desktop Electron app. All data is stored internally (Zustand state + local JSON export/import); no external services.
 
-## Features (mirroring TethysBio html/gui/notebook)
-- **Dashboard** — population summary & telemetry invariants (catch_total vs catch_legal).
-- **Simulation** — configurable IBM parameters, daily stepping, live population charts.
-- **Environment** — environmental data assimilation status (internal).
-- **Notebook** — Pluto-style interactive scratchpad.
+## Features (aligned with TethysBio)
+- **Tab 1: Controls & AOI Setup** — Scotian Shelf bathymetry AOI selector and seasonal bottom temperature climatology.
+- **Tab 2: Simulation & Habitat** — spatial habitat & organism distribution, abundance trajectories, environmental distributions, exclusion zones, and simulation parameter controls.
+- **Tab 3: Demographics & Growth** — stage structure, maturity ogives, size-frequency distributions, and biological summary.
+- **Tab 4: Assessment & Calibration** — annual production summary, stock-recruitment fits, macro-ecological fits, and multi-attribute criteria.
 
 ## Model
 - Snow-crab (*Chionoecetes opilio*) IBM: growth (Hiatt log formulation), maturity ogive, multi-hazard daily mortality, fishery harvest gate (legal males CW ≥ 95 mm), reproduction/fecundity, density feedback.

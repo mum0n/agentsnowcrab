@@ -8,7 +8,7 @@ const SCENARIOS = [
     description:
       'Simulate 3 years under zero fishing mortality to observe carrying capacity equilibrium, natural 20-stage cohort distribution, and thermal taxis.',
     config: {
-      'fishery.fishing_probability_daily': 0.0,
+      'fishery.fishing_harvest_rate_annual': 0.0,
       'ibm.toggles.directed_taxis': true,
       'ibm.toggles.molting': true,
       'ibm.toggles.reproduction': true,
@@ -19,9 +19,9 @@ const SCENARIOS = [
     id: 'heavy_fishing',
     title: 'Scenario 2: Commercial Overharvest (No MPA)',
     description:
-      'Impose high commercial fishing mortality (p = 0.012/day) with no marine protected areas, tracking legal male stock collapse and recruitment impairment.',
+      'Impose high commercial fishing mortality (52% annual harvest rate) with no marine protected areas, tracking legal male stock collapse and recruitment impairment.',
     config: {
-      'fishery.fishing_probability_daily': 0.012,
+      'fishery.fishing_harvest_rate_annual': 0.52,
       'ibm.toggles.directed_taxis': true,
     },
     days: 730,
@@ -33,7 +33,7 @@ const SCENARIOS = [
     description:
       'Evaluate spatial harvest refuge (ExclusionBox) with active fishing outside. Examines biomass preservation inside the reserve and spillover into adjacent fishing grounds.',
     config: {
-      'fishery.fishing_probability_daily': 0.008,
+      'fishery.fishing_harvest_rate_annual': 0.39,
       'ibm.toggles.directed_taxis': true,
     },
     days: 1095,

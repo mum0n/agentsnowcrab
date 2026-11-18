@@ -639,7 +639,7 @@ export default function Dashboard() {
                                 [0.75, '#FFE14F'],
                                 [1.0, '#FE7958'],
                               ],
-                              reversescale: backgroundLayer === 'depth',
+                              reversescale: backgroundLayer !== 'temperature',
                               showscale: true,
                               colorbar: {
                                 title:
@@ -875,7 +875,17 @@ export default function Dashboard() {
                   {/* Depth */}
                   <div>
                     <Plot
-                      data={[{ x: gridDepths, type: 'histogram', marker: { color: 'rgba(30, 58, 138, 0.45)', line: { color: '#1e3a8a', width: 1 } }, nbinsx: 16 }]}
+                      data={[{
+                        x: gridDepths,
+                        type: 'histogram',
+                        autobinx: false,
+                        xbins: {
+                          start: minDepthVal,
+                          end: maxDepthVal > minDepthVal ? maxDepthVal : minDepthVal + 1.0,
+                          size: Math.max(0.1, (maxDepthVal - minDepthVal) / 24.0),
+                        },
+                        marker: { color: 'rgba(30, 58, 138, 0.45)', line: { color: '#1e3a8a', width: 1 } },
+                      }]}
                       layout={lightPlotLayout({
                         autosize: true,
                         title: { text: `Seabed Depth<br>(μ = ${meanDepthVal} m, Δ = ${spanDepthVal} m)`, font: { size: 11, color: '#1e293b' } },
@@ -890,7 +900,17 @@ export default function Dashboard() {
                   {/* Temp */}
                   <div>
                     <Plot
-                      data={[{ x: gridTemps, type: 'histogram', marker: { color: 'rgba(185, 28, 28, 0.45)', line: { color: '#b91c1c', width: 1 } }, nbinsx: 16 }]}
+                      data={[{
+                        x: gridTemps,
+                        type: 'histogram',
+                        autobinx: false,
+                        xbins: {
+                          start: tempClimatologyBounds.zmin,
+                          end: tempClimatologyBounds.zmax,
+                          size: Math.max(0.01, (tempClimatologyBounds.zmax - tempClimatologyBounds.zmin) / 24.0),
+                        },
+                        marker: { color: 'rgba(185, 28, 28, 0.45)', line: { color: '#b91c1c', width: 1 } },
+                      }]}
                       layout={lightPlotLayout({
                         autosize: true,
                         title: { text: `Bottom Temperature<br>(μ = ${meanTempVal} °C, Δ = ${spanTempVal} °C)`, font: { size: 11, color: '#1e293b' } },
@@ -910,7 +930,13 @@ export default function Dashboard() {
                   {/* HSI */}
                   <div>
                     <Plot
-                      data={[{ x: gridHsis, type: 'histogram', marker: { color: 'rgba(15, 118, 110, 0.45)', line: { color: '#0f766e', width: 1 } }, nbinsx: 16 }]}
+                      data={[{
+                        x: gridHsis,
+                        type: 'histogram',
+                        autobinx: false,
+                        xbins: { start: 0.0, end: 1.0, size: 1.0 / 24.0 },
+                        marker: { color: 'rgba(15, 118, 110, 0.45)', line: { color: '#0f766e', width: 1 } },
+                      }]}
                       layout={lightPlotLayout({
                         autosize: true,
                         title: { text: `Habitat Suitability (HSI)<br>(μ = ${meanHsiVal}, [${minHsiVal}, ${maxHsiVal}])`, font: { size: 11, color: '#1e293b' } },
@@ -1105,6 +1131,24 @@ export default function Dashboard() {
                     className="ctrl-input"
                     value={params.environment?.benthic_carrying_capacity_density || 6000}
                     onChange={(e) => updateParam('environment.benthic_carrying_capacity_density', parseFloat(e.target.value) || 6000)}
+                  />
+                </div>
+                <div
+                  className="ctrl-row"
+                  title="Local crowding box width B in grid cells (0 = auto 1/5 of grid resolution). Triggers elevated crowding mortality and dispersal when local density exceeds carrying capacity."
+                  style={{ cursor: 'help' }}
+                >
+                  <span>Crowding Box B (cells, 0=G/5):</span>
+                  <input
+                    type="number"
+                    step="10"
+                    min="0"
+                    className="ctrl-input"
+                    value={params.environment?.local_crowding_box_size ?? 0}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (Number.isFinite(v) && v >= 0) updateParam('environment.local_crowding_box_size', v);
+                    }}
                   />
                 </div>
               </div>

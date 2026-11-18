@@ -122,13 +122,15 @@ export default function Simulation() {
             />
           </label>
           <label>
-            Daily Fishing Mortality Probability
+            Annual Harvest Rate
             <input
               type="number"
-              step="0.001"
-              value={params.fishery.fishing_probability_daily}
+              step="0.01"
+              min="0"
+              max="0.99"
+              value={params.fishery.fishing_harvest_rate_annual ?? 0.0}
               onChange={(e) =>
-                updateParam('fishery.fishing_probability_daily', +e.target.value)
+                updateParam('fishery.fishing_harvest_rate_annual', +e.target.value)
               }
             />
           </label>
@@ -136,8 +138,8 @@ export default function Simulation() {
             Legal Commercial Carapace Width (mm)
             <input
               type="number"
-              value={params.fishery.legal_size_mm}
-              onChange={(e) => updateParam('fishery.legal_size_mm', +e.target.value)}
+              value={params.fishery.legal_size_male}
+              onChange={(e) => updateParam('fishery.legal_size_male', +e.target.value)}
             />
           </label>
         </div>

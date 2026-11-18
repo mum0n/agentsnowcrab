@@ -257,6 +257,92 @@ export class Model {
     this.record();
   }
 
+  /**
+   * Build an O(N) coarse B x B density grid of empirically measured organisms
+   * (stage >= 11 or mature) and store local density / carrying-capacity ratios.
+   */
+  buildLocalCrowdingGrid(kDensity, unitMeters) {
+    const gsz = this.gridSize;
+    const rawB = this.params.environment?.local_crowding_box_size ?? 0;
+    const B = Math.max(1, Math.min(gsz, rawB > 0 ? Math.round(rawB) : Math.round(gsz / 5)));
+    const nTiles = Math.max(1, Math.ceil(gsz / B));
+    const counts = new Float64Array(nTiles * nTiles);
+    for (let i = 0; i < this.agents.length; i++) {
+      const a = this.agents[i];
+      if (!a.alive || !isEmpiricallyMeasured(a)) continue;
+      const tx = Math.min(nTiles - 1, Math.max(0, Math.floor(a.x / B)));
+      const ty = Math.min(nTiles - 1, Math.max(0, Math.floor(a.y / B)));
+      counts[ty * nTiles + tx] += 1.0;
+    }
+    const tileAreaKm2 = Math.max(1.0e-9, ((B * unitMeters) ** 2) / 1.0e6);
+    const ratios = new Float64Array(nTiles * nTiles);
+    const kDen = Math.max(1.0e-6, kDensity);
+    for (let idx = 0; idx < counts.length; idx++) {
+      ratios[idx] = (counts[idx] / tileAreaKm2) / kDen;
+    }
+    this._crowding = { B, nTiles, ratios, tileDelta: (1.0 / tileAreaKm2) / kDen };
+  }
+
+  decrementLocalCrowding(agent) {
+    const c = this._crowding;
+    if (!c || !isEmpiricallyMeasured(agent)) return;
+    const tx = Math.min(c.nTiles - 1, Math.max(0, Math.floor(agent.x / c.B)));
+    const ty = Math.min(c.nTiles - 1, Math.max(0, Math.floor(agent.y / c.B)));
+    const idx = ty * c.nTiles + tx;
+    c.ratios[idx] = Math.max(0.0, c.ratios[idx] - c.tileDelta);
+  }
+
+  getLocalCrowding(x, y) {
+    const c = this._crowding;
+    if (!c) return 0.0;
+    // Bilinear interpolation across B x B tile centers for C^0 continuity
+    const fx = Math.min(c.nTiles - 1, Math.max(0.0, (x + 0.5) / c.B - 0.5));
+    const fy = Math.min(c.nTiles - 1, Math.max(0.0, (y + 0.5) / c.B - 0.5));
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const x1 = Math.min(c.nTiles - 1, x0 + 1);
+    const y1 = Math.min(c.nTiles - 1, y0 + 1);
+    const wx = fx - x0;
+    const wy = fy - y0;
+    const r00 = c.ratios[y0 * c.nTiles + x0];
+    const r10 = c.ratios[y0 * c.nTiles + x1];
+    const r01 = c.ratios[y1 * c.nTiles + x0];
+    const r11 = c.ratios[y1 * c.nTiles + x1];
+    return (1.0 - wx) * ((1.0 - wy) * r00 + wy * r01) + wx * ((1.0 - wy) * r10 + wy * r11);
+  }
+
+  /**
+   * Unit vector pointing toward the least-crowded neighboring B x B tile when
+   * the current tile exceeds carrying capacity.
+   */
+  getCrowdingEscapeDir(x, y) {
+    const c = this._crowding;
+    if (!c) return { gx: 0, gy: 0 };
+    const tx = Math.min(c.nTiles - 1, Math.max(0, Math.floor(x / c.B)));
+    const ty = Math.min(c.nTiles - 1, Math.max(0, Math.floor(y / c.B)));
+    const cur = c.ratios[ty * c.nTiles + tx];
+    if (cur <= 1.0) return { gx: 0, gy: 0 };
+    let bestVal = cur;
+    let bestDx = 0;
+    let bestDy = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || nx >= c.nTiles || ny < 0 || ny >= c.nTiles) continue;
+        const v = c.ratios[ny * c.nTiles + nx];
+        if (v < bestVal) {
+          bestVal = v;
+          bestDx = dx;
+          bestDy = dy;
+        }
+      }
+    }
+    const mag = Math.hypot(bestDx, bestDy);
+    return mag > 0 ? { gx: bestDx / mag, gy: bestDy / mag } : { gx: 0, gy: 0 };
+  }
+
   step(ambientT = null) {
     const g = this.params.growth || {};
     const m = this.params.maturity || {};
@@ -311,6 +397,8 @@ export class Model {
     const maxMovePerYear = this.params.ibm?.max_move_m_per_year ?? this.params.simulation?.max_move_m_per_year ?? 7300.0;
     const unitMeters = Math.max(0.01, Number(this.unitMeters) || this.params.ibm?.unit_meters || 1.0);
     const stepSize = Math.max(0, ((maxMovePerYear / daysPerYear) * dt) / unitMeters);
+    const kDenParam = this.params.environment?.benthic_carrying_capacity_density ?? 6000.0;
+    this.buildLocalCrowdingGrid(kDenParam, unitMeters);
 
     for (let i = 0; i < this.agents.length; i++) {
       const a = this.agents[i];
@@ -375,46 +463,112 @@ export class Model {
           const foodWeight = envParams.habitat_food_weight ?? 0.5;
           const halfSat = Math.max(1.0e-6, envParams.half_saturation_food ?? 2.0);
           const tau = Math.max(0.01, envParams.movement_softmax_temperature ?? 0.5);
+          const crowdExp = envParams.benthic_carrying_capacity_exponent ?? 2.0;
+          const curCrowd = this.getLocalCrowding(a.x, a.y);
+          const crowdDir = curCrowd > 1.0 ? this.getCrowdingEscapeDir(a.x, a.y) : { gx: 0, gy: 0 };
 
           const utilities = [];
+          const escapeUtilities = [];
           const aquaticCandidates = [];
           let maxU = -Infinity;
+          let maxEsc = -Infinity;
           for (const d of deltas) {
             const nx = Math.max(0, Math.min(gsz - 1, a.x + d.dx));
             const ny = Math.max(0, Math.min(gsz - 1, a.y + d.dy));
             const envCand = this.getEnvAt(nx, ny);
             if (envCand.depth <= 0) {
               utilities.push(0.0);
+              escapeUtilities.push(0.0);
               continue;
             }
             aquaticCandidates.push(d);
+            const sTemp = Math.exp(-((envCand.temperature - tOptMove) ** 2) / (2.0 * tSigMove * tSigMove));
+            const candCrowd = this.getLocalCrowding(nx, ny);
+            const sCrowd = candCrowd > 1.0 ? 1.0 / (1.0 + Math.pow(candCrowd - 1.0, crowdExp)) : 1.0;
+            const dMag = Math.hypot(d.dx, d.dy);
+            const crowdBias = (curCrowd > 1.0 && dMag > 0)
+              ? 1.0 + 0.35 * ((d.dx * crowdDir.gx + d.dy * crowdDir.gy) / dMag)
+              : 1.0;
+
             let u = 0.0;
             if (envCand.depth >= 20.0 && envCand.hsi > 0.0 && envCand.temperature < tempMaxMove) {
-              const sTemp = Math.exp(-((envCand.temperature - tOptMove) ** 2) / (2.0 * tSigMove * tSigMove));
               const candFood = Array.isArray(this.foodAvailability)
                 ? (this.foodAvailability[Math.min(this.foodAvailability.length - 1, Math.max(0, Math.round(ny) * gsz + Math.round(nx)))] ?? 5.0)
                 : (Number(this.foodAvailability) || 1.0) * 5.0;
               const sFood = candFood / (candFood + halfSat);
-              u = envCand.hsi * sTemp * (1.0 + foodWeight * sFood);
+              u = envCand.hsi * sTemp * (1.0 + foodWeight * sFood) * sCrowd * crowdBias;
             }
             if (u > maxU) maxU = u;
             utilities.push(u);
+
+            // Continuous escape utility for inhospitable cells (never zero on aquatic cells)
+            const depthDeficit = Math.max(0.0, 20.0 - envCand.depth);
+            const sDepthEsc = Math.exp(-((depthDeficit / 10.0) ** 2));
+            const uEsc = Math.max(1.0e-12, sDepthEsc * sTemp * (0.1 + Math.max(0.0, envCand.hsi)) * sCrowd * crowdBias);
+            if (uEsc > maxEsc) maxEsc = uEsc;
+            escapeUtilities.push(uEsc);
           }
 
           let chosen = deltas[0];
-          const weights = utilities.map((u) => (u > 0.0 ? Math.exp((u - maxU) / tau) : 0.0));
-          const wSum = weights.reduce((acc, w) => acc + w, 0.0);
-          if (wSum > 0.0) {
-            let r = Math.random() * wSum;
-            for (let k = 0; k < deltas.length; k++) {
-              r -= weights[k];
-              if (r <= 0.0) {
-                chosen = deltas[k];
-                break;
+          if (maxU > 0.0) {
+            const weights = utilities.map((u) => (u > 0.0 ? Math.exp((u - maxU) / tau) : 0.0));
+            const wSum = weights.reduce((acc, w) => acc + w, 0.0);
+            if (wSum > 0.0) {
+              let r = Math.random() * wSum;
+              for (let k = 0; k < deltas.length; k++) {
+                r -= weights[k];
+                if (r <= 0.0) {
+                  chosen = deltas[k];
+                  break;
+                }
               }
             }
           } else if (aquaticCandidates.length > 0) {
-            chosen = aquaticCandidates[Math.floor(Math.random() * aquaticCandidates.length)];
+            // Inhospitable escape: probe 8 compass directions at longer range if local gradient is flat
+            const probeRadii = [Math.max(stepSize * 3.0, gsz * 0.05), Math.max(stepSize * 8.0, gsz * 0.15)];
+            let bestProbeScore = -Infinity;
+            let bestProbeDir = null;
+            for (const rad of probeRadii) {
+              for (let angIdx = 0; angIdx < 8; angIdx++) {
+                const ang = (angIdx * Math.PI) / 4.0;
+                const ux = Math.cos(ang);
+                const uy = Math.sin(ang);
+                const px = Math.max(0, Math.min(gsz - 1, a.x + rad * ux));
+                const py = Math.max(0, Math.min(gsz - 1, a.y + rad * uy));
+                const envP = this.getEnvAt(px, py);
+                if (envP.depth <= 0) continue;
+                const sTempP = Math.exp(-((envP.temperature - tOptMove) ** 2) / (2.0 * tSigMove * tSigMove));
+                const sDepthP = Math.exp(-((Math.max(0.0, 20.0 - envP.depth) / 10.0) ** 2));
+                const hospBonus = (envP.depth >= 20.0 && envP.hsi > 0.0 && envP.temperature < tempMaxMove) ? 2.0 : 0.0;
+                const score = hospBonus + sDepthP * sTempP * (0.1 + Math.max(0.0, envP.hsi));
+                if (score > bestProbeScore) {
+                  bestProbeScore = score;
+                  bestProbeDir = { ux, uy };
+                }
+              }
+            }
+            const escWeights = deltas.map((d, idx) => {
+              const uEsc = escapeUtilities[idx];
+              if (uEsc <= 0.0) return 0.0;
+              const dMag = Math.hypot(d.dx, d.dy);
+              const dirBonus = (bestProbeDir && dMag > 0)
+                ? 0.5 * ((d.dx * bestProbeDir.ux + d.dy * bestProbeDir.uy) / dMag)
+                : 0.0;
+              return Math.exp(((uEsc - maxEsc) + dirBonus) / tau);
+            });
+            const ewSum = escWeights.reduce((acc, w) => acc + w, 0.0);
+            if (ewSum > 0.0) {
+              let r = Math.random() * ewSum;
+              for (let k = 0; k < deltas.length; k++) {
+                r -= escWeights[k];
+                if (r <= 0.0) {
+                  chosen = deltas[k];
+                  break;
+                }
+              }
+            } else {
+              chosen = aquaticCandidates[Math.floor(Math.random() * aquaticCandidates.length)];
+            }
           }
           a.x = Math.max(0, Math.min(gsz - 1, a.x + chosen.dx));
           a.y = Math.max(0, Math.min(gsz - 1, a.y + chosen.dy));
@@ -432,12 +586,44 @@ export class Model {
           const probMat = maturityProbability(a, cellT, m);
           const isMaturing = Math.random() < probMat || nextStage >= maxStage;
           const condition = moltConditionFactor(a, orgParams, toggles);
-          a.cw = growthIncrement(a, cellT, g, isMaturing, condition);
+          const prevCw = a.cw;
+          const prevMassG = biomassKg(a) * 1000.0;
+          let targetCw = growthIncrement(a, cellT, g, isMaturing, condition);
+
+          const computeMassG = (cwVal, matFlag) => {
+            const c = Math.max(1.0, cwVal);
+            if (a.sex === 'male') {
+              const alpha = matFlag ? 0.0002665 : 0.000183;
+              const beta = matFlag ? 3.098 : 3.16;
+              return alpha * (c ** beta);
+            }
+            const alpha = matFlag ? 0.00045 : 0.000344;
+            const beta = matFlag ? 2.92 : 2.98;
+            return alpha * (c ** beta);
+          };
+
+          const matAfter = a.mature || isMaturing;
+          let targetMassG = computeMassG(targetCw, matAfter);
+          let deltaMassG = Math.max(0.0, targetMassG - prevMassG);
+          const preReserve = a.energy_reserve ?? 0.0;
+          const energeticsOn = toggles.use_energetics !== false && toggles.bioenergetics !== false;
+          if (energeticsOn && deltaMassG > 0.0 && preReserve < deltaMassG) {
+            const availMassG = prevMassG + Math.max(0.0, preReserve);
+            const betaApprox = a.sex === 'female' ? 2.95 : 3.12;
+            const scaledCw = targetCw * Math.pow(availMassG / Math.max(targetMassG, 1.0e-9), 1.0 / betaApprox);
+            const minExp = isMaturing ? (g.growth_min_expansion_mature ?? 0.06) : (g.growth_min_expansion_immature ?? 0.12);
+            targetCw = Math.max(prevCw * (1.0 + minExp), Math.min(targetCw, scaledCw));
+            targetMassG = computeMassG(targetCw, matAfter);
+            deltaMassG = Math.max(0.0, targetMassG - prevMassG);
+          }
+
+          a.cw = targetCw;
           a.stage = nextStage;
           a.last_molt_day = this.day;
           a.degree_days = 0.0;
-          if (toggles.use_energetics !== false && toggles.bioenergetics !== false) {
-            a.energy_reserve *= orgParams.molt_energy_retention ?? 0.1;
+          if (energeticsOn) {
+            const overheadCap = preReserve * (orgParams.molt_energy_retention ?? 0.1);
+            a.energy_reserve = Math.max(0.0, Math.min(overheadCap, preReserve - deltaMassG));
           }
           if (isMaturing) {
             a.mature = true;
@@ -447,9 +633,11 @@ export class Model {
       }
       if (a.mature) a.shell_age += dt;
 
-      // Natural mortality
-      const haz = mortalityHazards(a, nMeasured, K, cellT, mo, toggles, dt, this.day);
+      // Natural mortality (including localized B x B crowding feedback)
+      const localCrowd = this.getLocalCrowding(a.x, a.y);
+      const haz = mortalityHazards(a, nMeasured, K, cellT, mo, toggles, dt, this.day, localCrowd);
       if (Math.random() < haz) {
+        this.decrementLocalCrowding(a);
         a.alive = false;
         this.deaths += 1;
         continue;
@@ -468,6 +656,7 @@ export class Model {
         const sel = 1.0 / (1.0 + Math.exp(-(a.cw - legalThreshold) / 5.0));
         const pHarvest = 1.0 - Math.exp(-fDailyHazard * sel * dt);
         if (Math.random() < pHarvest) {
+          this.decrementLocalCrowding(a);
           a.fishery_removed = true;
           a.alive = false;
           this.catchTotal += 1;

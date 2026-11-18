@@ -71,6 +71,7 @@ export const DEFAULTS = {
     food_availability: 1.0,
     benthic_carrying_capacity_density: 6000.0,
     benthic_carrying_capacity_exponent: 2.0,
+    local_crowding_box_size: 0,
     habitat_quality_mean: 0.5,
     habitat_offset: 0.0,
     habitat_multiplier: 1.0,
@@ -108,10 +109,6 @@ export const DEFAULTS = {
     growth_min_expansion_mature: 0.06,
     max_size_male: 160.0,
     max_size_female: 95.0,
-    sigma: 0.04,
-    beta0: 0.30153,
-    beta1: 1.00027,
-    delta_mat: -0.13564,
   },
   organism: {
     intermolt_days_schedule: [
@@ -162,17 +159,12 @@ export const DEFAULTS = {
     maturity_size_gate: 35.0,
     maturity_l50_temp_slope: -2.0,
     maturity_temp_reference: 4.0,
-    cw50: 91.8,
-    l50_female: 51.6,
-    beta: 6.9957,
-    slope_female: 12.9812,
-    size_gate: 35.0,
   },
   mortality: {
     baseline_rate_by_stage: [
       0.35, 0.35, 0.35, 0.35,
       0.15, 0.15, 0.15, 0.15,
-      0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.06,
+      0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.06,
     ],
     rate_predation: 0.05,
     predation_size_reference: 5.0,
@@ -182,7 +174,6 @@ export const DEFAULTS = {
     soft_shell_decay_days: 15.0,
     baseline_trait_sigma: 0.25,
     benthic_carrying_capacity_exponent: 2.0,
-    density_gamma: 2.0,
     rate_starvation: 0.2,
     starvation_critical_fraction: 0.05,
     temp_thermal_stress: 8.0,
@@ -205,9 +196,6 @@ export const DEFAULTS = {
     fecundity_senescence_rate: 0.08,
     primiparous_shell_age_max: 2.0,
     fecundity_parity_size_split: 65.0,
-    primiparous_fecundity: 50000,
-    multiparous_fecundity: 150000,
-    senescence_discount: 0.08,
   },
 };
 
